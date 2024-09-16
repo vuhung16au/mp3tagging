@@ -19,7 +19,14 @@ python tag-album.py -f /path/to/folder -a "Album Name" -r "Artist Name"
 python tag-album.py -f /music/rock/ -a "Greatest Hits" -r "Queen"
 
 # Example with a different folder and album/artist names
-python tag-album.py -f /music/pop/ -a "Future Nostalgia" -r "Dua Lipa"
+python tag-album.py -f /music/pop/ -a "Greatest Hits" -r "Taylor Swift"
+
+# Show list of all mp3 files in plain text 
+python tag-album.py -f /music/rock/ --show 
+
+# Show list of all mp3 files in HTML format (no style) 
+python tag-album.py -f /music/rock/ --show --html
+
 ```
 
 # Options and Arguments 
