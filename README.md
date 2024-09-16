@@ -6,8 +6,8 @@
 # Typical Use Cases 
 
 This tool helps MP3 players, such as VLC, organize music files better by:
-- Sorting MP3 files into the correct albums
-- Sorting MP3 files by the correct artist
+- Sorting MP3 files into the correct albums 
+- Sorting MP3 files by the correct artists
 
 # Example Usage
 
