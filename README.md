@@ -9,7 +9,7 @@ This tool helps MP3 players, such as VLC, organize music files better by:
 - Sorting MP3 files into the correct albums
 - Sorting MP3 files by the correct artist
 
-# Example usage
+# Example Usage
 
 ```sh
 # Basic usage
@@ -51,7 +51,7 @@ To set up a virtual environment and install the required packages for `tag-album
     python -m venv env
     ```
 
-2. **Activate the virtual environment**:
+2. **Activate the Virtual Environment**:
     - On Windows:
       ```sh
       .\env\Scripts\activate
@@ -61,7 +61,7 @@ To set up a virtual environment and install the required packages for `tag-album
       source env/bin/activate
       ```
 
-3. **Install the required packages**:
+3. **Install the Required Packages**:
     ```sh
     pip install -r requirements.txt
     ```
