@@ -89,9 +89,13 @@ def set_artist_tag(directory, artist_name):
                 try:
                     audio = EasyID3(file_path)
                 except ID3NoHeaderError:
-                    audio = ID3(file_path)
-                    audio.add_tags()
-                    audio = EasyID3(file_path)
+                    try:
+                        audio = ID3(file_path)
+                        audio.add_tags()
+                        audio = EasyID3(file_path)
+                    except ID3NoHeaderError:
+                        print(f"Skipping file {file_path}: too small to contain valid ID3 tags.")
+                        continue
                 audio['artist'] = artist_name
                 audio.save()
                 print(f"Set artist tag for {file_path}")
