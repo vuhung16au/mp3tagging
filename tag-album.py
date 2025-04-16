@@ -5,6 +5,7 @@ from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, ID3NoHeaderError
 from prettytable import PrettyTable
 from yattag import Doc
+import datetime
 
 def show_folder_tags_in_pretty_HTML(directory):
     doc, tag, text = Doc().tagtext()
@@ -61,7 +62,15 @@ def show_folder_tags_in_pretty_HTML(directory):
     html_content = doc.getvalue()
     with open('mp3_tags.html', 'w') as f:
         f.write(html_content)
-    print("HTML file 'mp3_tags.html' generated successfully.")
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = f"./logs/{timestamp}.log"
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    with open(log_file_path, 'w') as log_file:
+        log_file.write(html_content)
+        
+    print(f"HTML file 'mp3_tags.html' generated successfully and log saved to '{log_file_path}'.")
+
 def show_folder_tags(directory):
     table = PrettyTable()
     table.field_names = ["File Path", "Artist", "Album"]
@@ -81,7 +90,17 @@ def show_folder_tags(directory):
 
     print(table)
 
+def write_log(log_entries, operation):
+    """Writes log entries to a timestamped log file."""
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = f"./logs/{operation}_{timestamp}.log"
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    with open(log_file_path, 'w') as log_file:
+        log_file.write("\n".join(log_entries))
+    print(f"{operation.capitalize()} operation completed. Log saved to '{log_file_path}'.")
+
 def set_artist_tag(directory, artist_name):
+    log_entries = []
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.mp3'):
@@ -94,13 +113,15 @@ def set_artist_tag(directory, artist_name):
                         audio.add_tags()
                         audio = EasyID3(file_path)
                     except ID3NoHeaderError:
-                        print(f"Skipping file {file_path}: too small to contain valid ID3 tags.")
+                        log_entries.append(f"Skipping file {file_path}: too small to contain valid ID3 tags.")
                         continue
                 audio['artist'] = artist_name
                 audio.save()
-                print(f"Set artist tag for {file_path}")
-                
+                log_entries.append(f"Set artist tag for {file_path}")
+    write_log(log_entries, "artist_tagging")
+
 def set_album_tag(directory, album_name):
+    log_entries = []
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.mp3'):
@@ -114,11 +135,12 @@ def set_album_tag(directory, album_name):
                         audio.save()
                         audio = EasyID3(file_path)
                     except Exception as e:
-                        print(f"Skipping file {file_path}: {e}")
+                        log_entries.append(f"Skipping file {file_path}: {e}")
                         continue
                 audio['album'] = album_name
                 audio.save()
-                print(f"Set album tag for {file_path}")
+                log_entries.append(f"Set album tag for {file_path}")
+    write_log(log_entries, "album_tagging")
 
 def main():
     parser = argparse.ArgumentParser(description='Set the "Album" and "Artist" tags of all the .mp3 files in a folder.')
