@@ -1,67 +1,56 @@
-
 # tag-album.py
 
 `tag-album.py` is a tool for batch updating the album and artist metadata of MP3 files in a specified folder.
 
-# Typical Use Cases 
+# How to Use
 
-This tool helps MP3 players, such as VLC, organize music files better by:
-- Sorting MP3 files into the correct albums 
-- Sorting MP3 files by the correct artists
+You can use `tag-album.py` to update the album and artist tags of all MP3 files in a folder, or to simply display the current metadata. The script supports both short and long options for flexibility.
 
-# Example Usage
-
-```sh
-# Basic usage
-python tag-album.py -f /path/to/folder -a "Album Name" -r "Artist Name"
-
-# Example with specific folder and album/artist names
-python tag-album.py -f /music/rock/ -a "Greatest Hits" -r "Queen"
-
-# Example with a different folder and album/artist names
-python tag-album.py -f /music/pop/ -a "Greatest Hits" -r "Taylor Swift"
-
-# Show list of all mp3 files in plain text 
-python tag-album.py -f /music/rock/ --show 
-
-# Show list of all mp3 files in HTML format (no style) 
-python tag-album.py -f /music/rock/ --show --html
-
-```
-
-# Options and Arguments 
+## Options and Arguments
 
 | Argument   | Description                                      |
 |------------|--------------------------------------------------|
-| `-f`       | Specifies the folder containing MP3 files        |
-| `-a`       | Sets the album name for the MP3 files            |
-| `-r`       | Sets the artist name for the MP3 files           |
-| `--folder` | Specifies the folder containing MP3 files        |
-| `--album`  | Sets the album name for the MP3 files            |
-| `--artist` | Sets the artist name for the MP3 files           |
+| `-f`, `--folder` | Specifies the folder containing MP3 files        |
+| `-a`, `--album`  | Sets the album name for the MP3 files            |
+| `-r`, `--artist` | Sets the artist name for the MP3 files           |
 | `--show`   | Displays the current metadata of the MP3 files   |
 | `--html`   | Outputs the metadata in HTML format              |
 
-# How to Install and Run 
+### Examples
+
+- **Update album and artist for all MP3s in a folder:**
+  ```sh
+  python tag-album.py -f /path/to/folder -a "Album Name" -r "Artist Name"
+  ```
+- **Show all MP3 files and their metadata in plain text:**
+  ```sh
+  python tag-album.py -f /music/rock/ --show
+  ```
+- **Show all MP3 files and their metadata in HTML:**
+  ```sh
+  python tag-album.py -f /music/rock/ --show --html
+  ```
+
+# How to Install and Run
 
 To set up a virtual environment and install the required packages for `tag-album.py`, follow these steps:
 
-1. **Create a virtual environment**:
+1. **Create a virtual environment named `.venv`:**
     ```sh
-    python -m venv env
+    python -m venv .venv
     ```
 
-2. **Activate the Virtual Environment**:
+2. **Activate the Virtual Environment:**
     - On Windows:
       ```sh
-      .\env\Scripts\activate
+      .venv\Scripts\activate
       ```
     - On Unix or MacOS:
       ```sh
-      source env/bin/activate
+      source .venv/bin/activate
       ```
 
-3. **Install the Required Packages**:
+3. **Install the Required Packages:**
     ```sh
     pip install -r requirements.txt
     ```

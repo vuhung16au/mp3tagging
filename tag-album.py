@@ -1,3 +1,7 @@
+# tag-album.py
+# This script allows users to view and set 'Artist' and 'Album' tags for all .mp3 files in a specified folder.
+# It can display tags in the terminal or generate an HTML report, and logs all operations.
+
 import os
 import sys
 import argparse
@@ -7,7 +11,12 @@ from prettytable import PrettyTable
 from yattag import Doc
 import datetime
 
+
 def show_folder_tags_in_pretty_HTML(directory):
+    """
+    Generates an HTML file displaying the Artist and Album tags of all .mp3 files in the given directory.
+    Also saves the HTML content to a timestamped log file in the 'logs' directory.
+    """
     doc, tag, text = Doc().tagtext()
     with tag('html'):
         with tag('head'):
@@ -41,6 +50,7 @@ def show_folder_tags_in_pretty_HTML(directory):
                         text('Artist')
                     with tag('th'):
                         text('Album')
+                # Walk through the directory and process each .mp3 file
                 for root, _, files in os.walk(directory):
                     for file in files:
                         if file.lower().endswith('.mp3'):
@@ -60,18 +70,24 @@ def show_folder_tags_in_pretty_HTML(directory):
                                 with tag('td'):
                                     text(album)
     html_content = doc.getvalue()
-    with open('mp3_tags.html', 'w') as f:
+    # Write HTML output to file (overwrites if exists)
+    with open('mp3_tags.html', 'w', encoding='utf-8') as f:
         f.write(html_content)
 
+    # Save the HTML content to a timestamped log file for auditing
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file_path = f"./logs/{timestamp}.log"
+    log_file_path = os.path.join("logs", f"album_tagging_{timestamp}.log")
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-    with open(log_file_path, 'w') as log_file:
+    with open(log_file_path, 'w', encoding='utf-8') as log_file:
         log_file.write(html_content)
-        
+
     print(f"HTML file 'mp3_tags.html' generated successfully and log saved to '{log_file_path}'.")
 
+
 def show_folder_tags(directory):
+    """
+    Prints a table of Artist and Album tags for all .mp3 files in the given directory.
+    """
     table = PrettyTable()
     table.field_names = ["File Path", "Artist", "Album"]
 
@@ -90,16 +106,24 @@ def show_folder_tags(directory):
 
     print(table)
 
+
 def write_log(log_entries, operation):
-    """Writes log entries to a timestamped log file."""
+    """
+    Writes log entries to a timestamped log file in the 'logs' directory.
+    """
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file_path = f"./logs/{operation}_{timestamp}.log"
+    log_file_path = os.path.join("logs", f"{operation}_{timestamp}.log")
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-    with open(log_file_path, 'w') as log_file:
+    with open(log_file_path, 'w', encoding='utf-8') as log_file:
         log_file.write("\n".join(log_entries))
     print(f"{operation.capitalize()} operation completed. Log saved to '{log_file_path}'.")
 
+
 def set_artist_tag(directory, artist_name):
+    """
+    Sets the 'Artist' tag for all .mp3 files in the given directory.
+    Logs each file processed or skipped.
+    """
     log_entries = []
     for root, _, files in os.walk(directory):
         for file in files:
@@ -111,16 +135,22 @@ def set_artist_tag(directory, artist_name):
                     try:
                         audio = ID3(file_path)
                         audio.add_tags()
+                        audio.save()
                         audio = EasyID3(file_path)
-                    except ID3NoHeaderError:
-                        log_entries.append(f"Skipping file {file_path}: too small to contain valid ID3 tags.")
+                    except Exception as e:
+                        log_entries.append(f"Skipping file {file_path}: {e}")
                         continue
                 audio['artist'] = artist_name
                 audio.save()
                 log_entries.append(f"Set artist tag for {file_path}")
     write_log(log_entries, "artist_tagging")
 
+
 def set_album_tag(directory, album_name):
+    """
+    Sets the 'Album' tag for all .mp3 files in the given directory.
+    Logs each file processed or skipped.
+    """
     log_entries = []
     for root, _, files in os.walk(directory):
         for file in files:
@@ -142,7 +172,11 @@ def set_album_tag(directory, album_name):
                 log_entries.append(f"Set album tag for {file_path}")
     write_log(log_entries, "album_tagging")
 
+
 def main():
+    """
+    Parses command-line arguments and executes the requested operations.
+    """
     parser = argparse.ArgumentParser(description='Set the "Album" and "Artist" tags of all the .mp3 files in a folder.')
     parser.add_argument('-f', '--folder', type=str, default=os.getcwd(), help='Folder containing .mp3 files')
     parser.add_argument('-a', '--album', type=str, help='Album name to set')
@@ -151,15 +185,19 @@ def main():
     parser.add_argument('--html', action='store_true', help='Save tags of all .mp3 files in the folder as HTML')
 
     args = parser.parse_args()
-    
+
+    # Security: Ensure the folder path is absolute and normalized
+    folder = os.path.abspath(os.path.normpath(args.folder))
+
     if args.show and args.html:
-        show_folder_tags_in_pretty_HTML(args.folder)
+        show_folder_tags_in_pretty_HTML(folder)
     elif args.show:
-        show_folder_tags(args.folder)
+        show_folder_tags(folder)
     if args.album:
-        set_album_tag(args.folder, args.album)
+        set_album_tag(folder, args.album)
     if args.artist:
-        set_artist_tag(args.folder, args.artist)
+        set_artist_tag(folder, args.artist)
+
 
 if __name__ == "__main__":
     main()
