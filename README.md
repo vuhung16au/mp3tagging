@@ -8,19 +8,30 @@ You can use `tag-album.py` to update the album and artist tags of all MP3 files 
 
 ## Options and Arguments
 
-| Argument   | Description                                      |
-|------------|--------------------------------------------------|
-| `-f`, `--folder` | Specifies the folder containing MP3 files        |
-| `-a`, `--album`  | Sets the album name for the MP3 files            |
-| `-r`, `--artist` | Sets the artist name for the MP3 files           |
-| `--show`   | Displays the current metadata of the MP3 files   |
-| `--html`   | Outputs the metadata in HTML format              |
+| Argument         | Description                                                      |
+|------------------|------------------------------------------------------------------|
+| `-f`, `--folder` | Specifies the folder containing MP3 files                        |
+| `-a`, `--album`  | Sets the album name for the MP3 files                            |
+| `-r`, `--artist` | Sets the artist name for the MP3 files                           |
+| `-g`, `--genre`  | Sets the genre (e.g., Rock, Jazz, Classical) for the MP3 files   |
+| `--rating`       | Sets a user-defined rating (1-5 stars) for the MP3 files         |
+| `--cover-art`    | Embeds a cover art image (JPG or PNG) into the MP3 files         |
+| `--show`         | Displays the current metadata of the MP3 files                   |
+| `--html`         | Outputs the metadata in HTML format                              |
 
 ### Examples
 
-- **Update album and artist for all MP3s in a folder:**
+- **Update album, artist, and genre for all MP3s in a folder:**
   ```sh
-  python tag-album.py -f /path/to/folder -a "Album Name" -r "Artist Name"
+  python tag-album.py -f /path/to/folder -a "Album Name" -r "Artist Name" -g "Rock"
+  ```
+- **Set a 5-star rating for all MP3s in a folder:**
+  ```sh
+  python tag-album.py -f /path/to/folder --rating 5
+  ```
+- **Embed cover art into all MP3s in a folder:**
+  ```sh
+  python tag-album.py -f /path/to/folder --cover-art /path/to/cover.jpg
   ```
 - **Show all MP3 files and their metadata in plain text:**
   ```sh
