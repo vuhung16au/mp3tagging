@@ -11,7 +11,7 @@ from mutagen.id3 import ID3, ID3NoHeaderError # Added ID3NoHeaderError here
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import tag_album 
 
-class TestTagAlbumYear(unittest.TestCase):
+class TestTagAlbum(unittest.TestCase):
     def setUp(self):
         self.test_dir = "temp_test_mp3s"
         os.makedirs(self.test_dir, exist_ok=True)
@@ -196,6 +196,148 @@ class TestTagAlbumYear(unittest.TestCase):
         except Exception as e:
             self.fail(f"Unexpected error when reading year tag for {test_year}: {e}")
 
+    def test_set_artist_tag_via_main_argument(self):
+        test_artist_name = "Test Artist"
+        # Construct the path to tag_album.py relative to this test script
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+
+        cmd = [
+            sys.executable,
+            script_path,
+            "-f", self.test_dir,
+            "-r", test_artist_name  # -r for artist as per tag_album.py's argument parsing
+        ]
+
+        try:
+            # Run the script
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"tag_album.py script execution failed: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        except FileNotFoundError:
+            self.fail(f"tag_album.py script not found at {script_path}. Check path and script name.")
+
+        # Verify the tag was set
+        try:
+            audio = EasyID3(self.test_mp3_path)
+            self.assertEqual(audio['artist'], [test_artist_name])
+        except ID3NoHeaderError:
+            self.fail(f"ID3NoHeaderError raised after running script for artist '{test_artist_name}'. The script should have created ID3 headers if missing.")
+        except KeyError:
+            self.fail(f"'artist' tag not found after running script for artist '{test_artist_name}'.")
+        except Exception as e:
+            self.fail(f"Unexpected error when reading artist tag for '{test_artist_name}': {e}")
+
+    def test_show_tags_plaintext_via_main_argument(self):
+        test_artist = "Show Artist"
+        test_album = "Show Album"
+        test_year = "2026"
+
+        # Set tags on the test MP3 file
+        try:
+            audio = EasyID3(self.test_mp3_path)
+        except ID3NoHeaderError:
+            audio = ID3()
+            audio.save(self.test_mp3_path)
+            audio = EasyID3(self.test_mp3_path) # Reload
+        
+        audio['artist'] = test_artist
+        audio['album'] = test_album
+        audio['date'] = test_year
+        audio.save()
+
+        # Construct the path to tag_album.py
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+
+        # Prepare the command
+        cmd = [
+            sys.executable,
+            script_path,
+            "-f", self.test_dir,
+            "--show"
+        ]
+
+        # Execute the command
+        try:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            output = result.stdout
+        except subprocess.CalledProcessError as e:
+            self.fail(f"tag_album.py script execution failed for --show: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        except FileNotFoundError:
+            self.fail(f"tag_album.py script not found at {script_path}. Check path and script name.")
+
+        # Verify the output
+        self.assertIn("Artist", output, "The 'Artist' header is missing from --show output.")
+        self.assertIn("Album", output, "The 'Album' header is missing from --show output.")
+        self.assertIn("Year", output, "The 'Year' header is missing from --show output.")
+        
+        self.assertIn(test_artist, output, f"The artist '{test_artist}' is missing from --show output.")
+        self.assertIn(test_album, output, f"The album '{test_album}' is missing from --show output.")
+        self.assertIn(test_year, output, f"The year '{test_year}' is missing from --show output.")
+        
+        self.assertIn(os.path.basename(self.test_mp3_path), output, f"The filename '{os.path.basename(self.test_mp3_path)}' is missing from --show output.")
+
+    def test_show_tags_html_via_main_argument(self):
+        test_artist = "HTML Artist"
+        test_album = "HTML Album"
+        test_year = "2027"
+        html_report_path = "mp3_tags.html"
+
+        # Set tags on the test MP3 file
+        try:
+            audio = EasyID3(self.test_mp3_path)
+        except ID3NoHeaderError:
+            audio = ID3()
+            audio.save(self.test_mp3_path)
+            audio = EasyID3(self.test_mp3_path) # Reload
+        
+        audio['artist'] = test_artist
+        audio['album'] = test_album
+        audio['date'] = test_year
+        audio.save()
+
+        # Construct the path to tag_album.py
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+
+        # Prepare the command
+        cmd = [
+            sys.executable,
+            script_path,
+            "-f", self.test_dir,
+            "--show",
+            "--html"
+        ]
+
+        # Execute the command
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"tag_album.py script execution failed for --show --html: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        except FileNotFoundError:
+            self.fail(f"tag_album.py script not found at {script_path}. Check path and script name.")
+
+        # Verify HTML file creation
+        self.assertTrue(os.path.exists(html_report_path), f"HTML report file '{html_report_path}' was not generated.")
+
+        # Read and verify HTML content
+        with open(html_report_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        self.assertIn("<th>Artist</th>", html_content, "The 'Artist' table header is missing from HTML output.")
+        self.assertIn("<th>Album</th>", html_content, "The 'Album' table header is missing from HTML output.")
+        self.assertIn("<th>Year</th>", html_content, "The 'Year' table header is missing from HTML output.")
+        
+        self.assertIn(f"<td>{test_artist}</td>", html_content, f"The artist '{test_artist}' is missing from HTML output.")
+        self.assertIn(f"<td>{test_album}</td>", html_content, f"The album '{test_album}' is missing from HTML output.")
+        self.assertIn(f"<td>{test_year}</td>", html_content, f"The year '{test_year}' is missing from HTML output.")
+        
+        # Check for the filename (potentially within a <td> tag)
+        # Using basename as the full path might be formatted or truncated in HTML.
+        self.assertIn(os.path.basename(self.test_mp3_path), html_content, f"The filename '{os.path.basename(self.test_mp3_path)}' is missing from HTML output.")
+        # A more specific check if the structure is known:
+        # self.assertIn(f"<td>{os.path.basename(self.test_mp3_path)}</td>", html_content, f"The filename '{os.path.basename(self.test_mp3_path)}' in a <td> tag is missing from HTML output.")
+
+        # Cleanup of mp3_tags.html is handled by tearDown method
+
 if __name__ == '__main__':
     unittest.main()
 
@@ -243,6 +385,8 @@ class TestRecursiveBehavior(unittest.TestCase):
     def tearDown(self):
         if os.path.exists(self.base_dir):
             shutil.rmtree(self.base_dir)
+        if os.path.exists("mp3_tags.html"): # Added cleanup for mp3_tags.html
+            os.remove("mp3_tags.html")
         # Do not remove "logs" as it's a general script directory
         # Do not remove mp3_tags.html here as other tests might generate/use it.
 
@@ -295,3 +439,132 @@ class TestRecursiveBehavior(unittest.TestCase):
         sub_audio = EasyID3(self.sub_mp3_path)
         self.assertIn('album', sub_audio, "Album tag not set in sub MP3 for recursive test.")
         self.assertEqual(sub_audio['album'], [album_name])
+
+    def test_show_tags_plaintext_recursive_via_main_argument(self):
+        test_artist = "Recursive Show Artist"
+        test_album = "Recursive Show Album"
+        test_year = "2028"
+
+        # Set tags on both MP3 files
+        for mp3_path in [self.root_mp3_path, self.sub_mp3_path]:
+            try:
+                audio = EasyID3(mp3_path)
+            except ID3NoHeaderError:
+                audio_id3 = ID3()
+                audio_id3.save(mp3_path)
+                audio = EasyID3(mp3_path) # Reload
+            
+            audio['artist'] = test_artist
+            audio['album'] = test_album
+            audio['date'] = test_year
+            audio.save()
+
+        # Construct the path to tag_album.py
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+
+        # Prepare the command
+        cmd = [
+            sys.executable,
+            script_path,
+            "-f", self.base_dir,
+            "--show",
+            "-R" # Recursive flag
+        ]
+
+        # Execute the command
+        try:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            output = result.stdout
+        except subprocess.CalledProcessError as e:
+            self.fail(f"tag_album.py script execution failed for --show -R: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        except FileNotFoundError:
+            self.fail(f"tag_album.py script not found at {script_path}. Check path and script name.")
+
+        # Verify the output
+        self.assertIn("Artist", output, "The 'Artist' header is missing from --show -R output.")
+        self.assertIn("Album", output, "The 'Album' header is missing from --show -R output.")
+        self.assertIn("Year", output, "The 'Year' header is missing from --show -R output.")
+
+        # Verify tags for root MP3
+        self.assertIn(test_artist, output, f"The artist '{test_artist}' is missing for root MP3 in --show -R output.")
+        self.assertIn(test_album, output, f"The album '{test_album}' is missing for root MP3 in --show -R output.")
+        self.assertIn(test_year, output, f"The year '{test_year}' is missing for root MP3 in --show -R output.")
+        self.assertIn(os.path.basename(self.root_mp3_path), output, f"The filename '{os.path.basename(self.root_mp3_path)}' is missing from --show -R output.")
+        
+        # Verify tags for sub MP3
+        self.assertIn(test_artist, output, f"The artist '{test_artist}' is missing for sub MP3 in --show -R output.")
+        self.assertIn(test_album, output, f"The album '{test_album}' is missing for sub MP3 in --show -R output.")
+        self.assertIn(test_year, output, f"The year '{test_year}' is missing for sub MP3 in --show -R output.")
+        self.assertIn(os.path.basename(self.sub_mp3_path), output, f"The filename '{os.path.basename(self.sub_mp3_path)}' is missing from --show -R output.")
+
+        # Check that the values appear at least twice (once for each file)
+        # This is a simplified check; more robust would be to parse the table and check rows.
+        self.assertTrue(output.count(test_artist) >= 2, f"Artist '{test_artist}' not found for both files.")
+        self.assertTrue(output.count(test_album) >= 2, f"Album '{test_album}' not found for both files.")
+        self.assertTrue(output.count(test_year) >= 2, f"Year '{test_year}' not found for both files.")
+
+    def test_show_tags_html_recursive_via_main_argument(self):
+        test_artist = "Recursive HTML Artist"
+        test_album = "Recursive HTML Album"
+        test_year = "2029"
+        html_report_path = "mp3_tags.html"
+
+        # Set tags on both MP3 files
+        for mp3_path in [self.root_mp3_path, self.sub_mp3_path]:
+            try:
+                audio = EasyID3(mp3_path)
+            except ID3NoHeaderError:
+                audio_id3 = ID3()
+                audio_id3.save(mp3_path)
+                audio = EasyID3(mp3_path) # Reload
+            
+            audio['artist'] = test_artist
+            audio['album'] = test_album
+            audio['date'] = test_year
+            audio.save()
+
+        # Construct the path to tag_album.py
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+
+        # Prepare the command
+        cmd = [
+            sys.executable,
+            script_path,
+            "-f", self.base_dir,
+            "--show",
+            "--html",
+            "-R" # Recursive flag
+        ]
+
+        # Execute the command
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"tag_album.py script execution failed for --show --html -R: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        except FileNotFoundError:
+            self.fail(f"tag_album.py script not found at {script_path}. Check path and script name.")
+
+        # Verify HTML file creation
+        self.assertTrue(os.path.exists(html_report_path), f"HTML report file '{html_report_path}' was not generated.")
+
+        # Read and verify HTML content
+        with open(html_report_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        self.assertIn("<th>Artist</th>", html_content, "The 'Artist' table header is missing from HTML output.")
+        self.assertIn("<th>Album</th>", html_content, "The 'Album' table header is missing from HTML output.")
+        self.assertIn("<th>Year</th>", html_content, "The 'Year' table header is missing from HTML output.")
+        
+        # Verify tags for both MP3s
+        # Check that the values appear at least twice (once for each file)
+        self.assertTrue(html_content.count(f"<td>{test_artist}</td>") >= 2, f"Artist '{test_artist}' not found for both files in HTML.")
+        self.assertTrue(html_content.count(f"<td>{test_album}</td>") >= 2, f"Album '{test_album}' not found for both files in HTML.")
+        self.assertTrue(html_content.count(f"<td>{test_year}</td>") >= 2, f"Year '{test_year}' not found for both files in HTML.")
+
+        # Verify filenames are present
+        expected_root_path_in_html = os.path.join("/app", self.root_mp3_path)
+        expected_sub_path_in_html = os.path.join("/app", self.sub_mp3_path)
+        self.assertIn(f"<td>{expected_root_path_in_html}</td>", html_content, f"The filename '{expected_root_path_in_html}' is missing from HTML output.")
+        self.assertIn(f"<td>{expected_sub_path_in_html}</td>", html_content, f"The filename '{expected_sub_path_in_html}' is missing from HTML output.")
+        
+        # Cleanup of mp3_tags.html is handled by tearDown method in this class
