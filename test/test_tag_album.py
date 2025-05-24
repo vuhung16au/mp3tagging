@@ -2,6 +2,7 @@ import unittest
 import os
 import shutil
 import sys # Ensure sys is imported before use
+import subprocess
 from mutagen.easyid3 import EasyID3 # Corrected: ID3NoHeaderError is from mutagen.id3
 from mutagen.id3 import ID3, ID3NoHeaderError # Added ID3NoHeaderError here
 
@@ -160,6 +161,40 @@ class TestTagAlbumYear(unittest.TestCase):
                     break
         
         self.assertTrue(found_unknown_for_year_in_file_row, "Expected 'Unknown' for year tag in the file's row when not set.")
+
+    def test_set_year_tag_via_main_argument(self):
+        test_year = "2024"
+        # Construct the path to tag_album.py relative to this test script
+        # os.path.dirname(__file__) is /app/test
+        # os.path.join(os.path.dirname(__file__), '..') is /app
+        # script_path is /app/tag_album.py
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+
+        cmd = [
+            sys.executable, 
+            script_path,
+            "-f", self.test_dir,
+            "-y", test_year
+        ]
+        
+        try:
+            # Run the script
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"tag_album.py script execution failed: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        except FileNotFoundError:
+            self.fail(f"tag_album.py script not found at {script_path}. Check path and script name.")
+
+        # Verify the tag was set
+        try:
+            audio = EasyID3(self.test_mp3_path)
+            self.assertEqual(audio['date'], [test_year])
+        except ID3NoHeaderError:
+            self.fail(f"ID3NoHeaderError raised after running script for year {test_year}. The script should have created ID3 headers if missing.")
+        except KeyError:
+            self.fail(f"'date' tag not found after running script for year {test_year}.")
+        except Exception as e:
+            self.fail(f"Unexpected error when reading year tag for {test_year}: {e}")
 
 if __name__ == '__main__':
     unittest.main()
