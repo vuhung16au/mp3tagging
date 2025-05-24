@@ -55,6 +55,8 @@ def show_folder_tags_in_pretty_HTML(directory):
                         text('Genre')
                     with tag('th'):
                         text('Rating')
+                    with tag('th'):
+                        text('Year')
                 for root, _, files in os.walk(directory):
                     for file in files:
                         if file.lower().endswith('.mp3'):
@@ -64,10 +66,12 @@ def show_folder_tags_in_pretty_HTML(directory):
                                 artist = audio.get('artist', ['Unknown'])[0]
                                 album = audio.get('album', ['Unknown'])[0]
                                 genre = audio.get('genre', ['Unknown'])[0]
+                                year = audio.get('date', ['Unknown'])[0]
                             except ID3NoHeaderError:
                                 artist = 'Unknown'
                                 album = 'Unknown'
                                 genre = 'Unknown'
+                                year = 'Unknown'
                             # Get rating from POPM frame
                             try:
                                 id3 = ID3(file_path)
@@ -100,6 +104,8 @@ def show_folder_tags_in_pretty_HTML(directory):
                                     text(genre)
                                 with tag('td'):
                                     text(rating)
+                                with tag('td'):
+                                    text(year)
     html_content = doc.getvalue()
     with open('mp3_tags.html', 'w', encoding='utf-8') as f:
         f.write(html_content)
@@ -117,7 +123,7 @@ def show_folder_tags(directory):
     """
     from mutagen.id3 import POPM
     table = PrettyTable()
-    table.field_names = ["File Path", "Artist", "Album", "Genre", "Rating"]
+    table.field_names = ["File Path", "Artist", "Album", "Genre", "Rating", "Year"]
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.mp3'):
@@ -127,10 +133,12 @@ def show_folder_tags(directory):
                     artist = audio.get('artist', ['Unknown'])[0]
                     album = audio.get('album', ['Unknown'])[0]
                     genre = audio.get('genre', ['Unknown'])[0]
+                    year = audio.get('date', ['Unknown'])[0]
                 except ID3NoHeaderError:
                     artist = 'Unknown'
                     album = 'Unknown'
                     genre = 'Unknown'
+                    year = 'Unknown'
                 # Get rating from POPM frame
                 try:
                     id3 = ID3(file_path)
@@ -151,7 +159,7 @@ def show_folder_tags(directory):
                         rating = 'Unknown'
                 except Exception:
                     rating = 'Unknown'
-                table.add_row([file_path, artist, album, genre, rating])
+                table.add_row([file_path, artist, album, genre, rating, year])
     print(table)
 
 
@@ -332,6 +340,33 @@ def set_cover_art(directory, image_path):
     write_log(log_entries, "coverart_tagging")
 
 
+def set_year_tag(directory, year_value):
+    """
+    Sets the 'Year' tag for all .mp3 files in the given directory.
+    Logs each file processed or skipped.
+    """
+    log_entries = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith('.mp3'):
+                file_path = os.path.join(root, file)
+                try:
+                    audio = EasyID3(file_path)
+                except ID3NoHeaderError:
+                    try:
+                        from mutagen.id3 import ID3
+                        id3 = ID3()
+                        id3.save(file_path)
+                        audio = EasyID3(file_path)
+                    except Exception as e:
+                        log_entries.append(f"Skipping file {file_path}: {e}")
+                        continue
+                audio['date'] = year_value
+                audio.save(file_path)
+                log_entries.append(f"Set year tag to {year_value} for {file_path}")
+    write_log(log_entries, "year_tagging")
+
+
 def main():
     """
     Parses command-line arguments and executes the requested operations.
@@ -343,6 +378,7 @@ def main():
     parser.add_argument('-g', '--genre', type=str, help='Genre to set')
     parser.add_argument('--rating', type=int, choices=range(1,6), help='Rating to set (1-5)')
     parser.add_argument('--cover-art', type=str, help='Path to cover art image (JPG or PNG)')
+    parser.add_argument('-y', '--year', type=str, help='Year to set (e.g., 2023)')
     parser.add_argument('--show', action='store_true', help='Show tags of all .mp3 files in the folder')
     parser.add_argument('--html', action='store_true', help='Save tags of all .mp3 files in the folder as HTML')
 
@@ -365,6 +401,8 @@ def main():
         set_rating_tag(folder, args.rating)
     if args.cover_art:
         set_cover_art(folder, args.cover_art)
+    if args.year:
+        set_year_tag(folder, args.year)
 
 
 if __name__ == "__main__":

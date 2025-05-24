@@ -1,10 +1,10 @@
-# tag-album.py
+# tag_album.py
 
-`tag-album.py` is a tool for batch updating the album and artist metadata of MP3 files in a specified folder.
+`tag_album.py` is a tool for batch updating the album and artist metadata of MP3 files in a specified folder.
 
 # How to Use
 
-You can use `tag-album.py` to update the album and artist tags of all MP3 files in a folder, or to simply display the current metadata. The script supports both short and long options for flexibility.
+You can use `tag_album.py` to update the album and artist tags of all MP3 files in a folder, or to simply display the current metadata. The script supports both short and long options for flexibility.
 
 ## Options and Arguments
 
@@ -16,6 +16,7 @@ You can use `tag-album.py` to update the album and artist tags of all MP3 files 
 | `-g`, `--genre`  | Sets the genre (e.g., Rock, Jazz, Classical) for the MP3 files   |
 | `--rating`       | Sets a user-defined rating (1-5 stars) for the MP3 files         |
 | `--cover-art`    | Embeds a cover art image (JPG or PNG) into the MP3 files         |
+| `-y`, `--year`  | Sets the year (e.g., 2023) for the MP3 files |
 | `--show`         | Displays the current metadata of the MP3 files                   |
 | `--html`         | Outputs the metadata in HTML format                              |
 
@@ -23,28 +24,32 @@ You can use `tag-album.py` to update the album and artist tags of all MP3 files 
 
 - **Update album, artist, and genre for all MP3s in a folder:**
   ```sh
-  python tag-album.py -f /path/to/folder -a "Album Name" -r "Artist Name" -g "Rock"
+  python tag_album.py -f /path/to/folder -a "Album Name" -r "Artist Name" -g "Rock"
   ```
 - **Set a 5-star rating for all MP3s in a folder:**
   ```sh
-  python tag-album.py -f /path/to/folder --rating 5
+  python tag_album.py -f /path/to/folder --rating 5
   ```
 - **Embed cover art into all MP3s in a folder:**
   ```sh
-  python tag-album.py -f /path/to/folder --cover-art /path/to/cover.jpg
+  python tag_album.py -f /path/to/folder --cover-art /path/to/cover.jpg
+  ```
+- **Set the year for all MP3s in a folder:**
+  ```sh
+  python tag_album.py -f /path/to/folder -y "2023"
   ```
 - **Show all MP3 files and their metadata in plain text:**
   ```sh
-  python tag-album.py -f /music/rock/ --show
+  python tag_album.py -f /music/rock/ --show
   ```
 - **Show all MP3 files and their metadata in HTML:**
   ```sh
-  python tag-album.py -f /music/rock/ --show --html
+  python tag_album.py -f /music/rock/ --show --html
   ```
 
 # How to Install and Run
 
-To set up a virtual environment and install the required packages for `tag-album.py`, follow these steps:
+To set up a virtual environment and install the required packages for `tag_album.py`, follow these steps:
 
 1. **Create a virtual environment named `.venv`:**
     ```sh
@@ -66,6 +71,6 @@ To set up a virtual environment and install the required packages for `tag-album
     pip install -r requirements.txt
     ```
 
-Make sure you have a `requirements.txt` file in the same directory as `tag-album.py` with all the necessary dependencies listed.
+Make sure you have a `requirements.txt` file in the same directory as `tag_album.py` with all the necessary dependencies listed.
 
 Once the virtual environment is set up and the packages are installed, you can run the script as shown in the example usage section.
