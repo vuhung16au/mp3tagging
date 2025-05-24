@@ -461,19 +461,59 @@ def main():
     """
     Parses command-line arguments and executes the requested operations.
     """
-    parser = argparse.ArgumentParser(description='Set the "Album", "Artist", "Genre", "Rating", and Cover Art tags of all the .mp3 files in a folder.')
-    parser.add_argument('-f', '--folder', type=str, default=os.getcwd(), help='Folder containing .mp3 files')
-    parser.add_argument('-a', '--album', type=str, help='Album name to set')
-    parser.add_argument('-r', '--artist', type=str, help='Artist name to set')
-    parser.add_argument('-g', '--genre', type=str, help='Genre to set')
-    parser.add_argument('--rating', type=int, choices=range(1,6), help='Rating to set (1-5)')
-    parser.add_argument('--cover-art', type=str, help='Path to cover art image (JPG or PNG)')
-    parser.add_argument('-y', '--year', type=str, help='Year to set (e.g., 2023)')
-    parser.add_argument('--show', action='store_true', help='Show tags of all .mp3 files in the folder')
-    parser.add_argument('--html', action='store_true', help='Save tags of all .mp3 files in the folder as HTML')
-    parser.add_argument('-R', '--recursive', action='store_true', help='Recursively process files in subdirectories. If not set, only files in the specified folder are processed.')
+    epilog_text = """
+Usage examples:
+  Show tags:
+    python3 tag_album.py --folder /path/to/music --show
+  Set album and artist:
+    python3 tag_album.py --folder /path/to/music --artist "Artist Name" --album "Album Name"
+  Set cover art:
+    python3 tag_album.py --folder /path/to/music --cover-art /path/to/image.jpg
+  Use recursive option:
+    python3 tag_album.py --folder /path/to/music --artist "New Artist" -R
+"""
+    parser = argparse.ArgumentParser(
+        description='View or set ID3 tags (Album, Artist, Genre, Rating, Year, Cover Art) for .mp3 files in a specified folder.',
+        epilog=epilog_text,
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument('-f', '--folder', type=str, default=os.getcwd(), help='Directory containing .mp3 files. Defaults to the current working directory.')
+    parser.add_argument('-a', '--album', type=str, help='Album name to set for all .mp3 files.')
+    parser.add_argument('-r', '--artist', type=str, help='Artist name to set for all .mp3 files.')
+    parser.add_argument('-g', '--genre', type=str, help='Genre to set for all .mp3 files.')
+    parser.add_argument('--rating', type=int, choices=range(1,6), help='Rating to set (1-5 stars) for all .mp3 files.')
+    parser.add_argument('--cover-art', type=str, help='Path to an image file (JPG or PNG) to embed as cover art.')
+    parser.add_argument('-y', '--year', type=str, help='Year to set (e.g., "2023") for all .mp3 files.')
+    parser.add_argument('--show', action='store_true', help='Display current ID3 tags of .mp3 files in a table format in the terminal.')
+    parser.add_argument('--html', action='store_true', help='Generate an HTML file ("mp3_tags.html") displaying current ID3 tags.')
+    parser.add_argument('-R', '--recursive', action='store_true', help='Recursively process .mp3 files in subdirectories. If not set, only files in the specified folder are processed.')
+
+    # If no arguments are provided (other than the script name itself), print help and exit.
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     args = parser.parse_args()
+
+    # Determine if any action (show, html) or tag-setting operation was specified by the user.
+    # We don't consider --folder or --recursive as actions themselves for this check,
+    # as they only modify how other actions behave.
+    action_or_tag_specified = any([
+        args.show,
+        args.html,
+        args.album is not None,
+        args.artist is not None,
+        args.genre is not None,
+        args.rating is not None,
+        args.cover_art is not None,
+        args.year is not None
+    ])
+
+    # If no action or tag setting was specified (e.g., "python tag_album.py --folder /some/path"),
+    # print help and exit.
+    if not action_or_tag_specified:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     # Security: Ensure the folder path is absolute and normalized
     folder = os.path.abspath(os.path.normpath(args.folder))
@@ -482,6 +522,8 @@ def main():
         show_folder_tags_in_pretty_HTML(folder, args.recursive)
     elif args.show:
         show_folder_tags(folder, args.recursive)
+
+    # Proceed with tag setting if any are specified
     if args.album:
         set_album_tag(folder, args.album, args.recursive)
     if args.artist:
