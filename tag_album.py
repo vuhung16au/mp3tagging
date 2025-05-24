@@ -1,5 +1,7 @@
 # tag-album.py
-# This script allows users to view and set 'Artist' and 'Album' tags for all .mp3 files in a specified folder.
+# This script allows users to view and set 'Artist', 'Album', 'Genre', 'Rating', 'Year', and cover art tags
+# for .mp3 files. By default, it processes files only in the specified folder.
+# Use the -R or --recursive flag to process files in subdirectories as well.
 # It can display tags in the terminal or generate an HTML report, and logs all operations.
 
 import os
@@ -12,10 +14,11 @@ from yattag import Doc
 import datetime
 
 
-def show_folder_tags_in_pretty_HTML(directory):
+def show_folder_tags_in_pretty_HTML(directory, recursive):
     """
-    Generates an HTML file displaying the Artist, Album, Genre, and Rating tags of all .mp3 files in the given directory.
-    Also saves the HTML content to a timestamped log file in the 'logs' directory.
+    Generates an HTML file displaying tags of .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
+    Saves HTML content to a timestamped log file.
     """
     from mutagen.id3 import POPM
     doc, tag, text = Doc().tagtext()
@@ -57,55 +60,66 @@ def show_folder_tags_in_pretty_HTML(directory):
                         text('Rating')
                     with tag('th'):
                         text('Year')
-                for root, _, files in os.walk(directory):
-                    for file in files:
-                        if file.lower().endswith('.mp3'):
-                            file_path = os.path.join(root, file)
-                            try:
-                                audio = EasyID3(file_path)
-                                artist = audio.get('artist', ['Unknown'])[0]
-                                album = audio.get('album', ['Unknown'])[0]
-                                genre = audio.get('genre', ['Unknown'])[0]
-                                year = audio.get('date', ['Unknown'])[0]
-                            except ID3NoHeaderError:
-                                artist = 'Unknown'
-                                album = 'Unknown'
-                                genre = 'Unknown'
-                                year = 'Unknown'
-                            # Get rating from POPM frame
-                            try:
-                                id3 = ID3(file_path)
-                                popms = id3.getall('POPM')
-                                if popms:
-                                    rating_val = popms[0].rating
-                                    # Map 0-255 to 1-5 stars
-                                    if rating_val >= 196:
-                                        rating = '5'
-                                    elif rating_val >= 128:
-                                        rating = '4'
-                                    elif rating_val >= 64:
-                                        rating = '3'
-                                    elif rating_val >= 1:
-                                        rating = '2'
-                                    else:
-                                        rating = '1'
-                                else:
-                                    rating = 'Unknown'
-                            except Exception:
-                                rating = 'Unknown'
-                            with tag('tr'):
-                                with tag('td'):
-                                    text(file_path)
-                                with tag('td'):
-                                    text(artist)
-                                with tag('td'):
-                                    text(album)
-                                with tag('td'):
-                                    text(genre)
-                                with tag('td'):
-                                    text(rating)
-                                with tag('td'):
-                                    text(year)
+
+                def process_file(file_path, doc_tag, doc_text):
+                    try:
+                        audio = EasyID3(file_path)
+                        artist = audio.get('artist', ['Unknown'])[0]
+                        album = audio.get('album', ['Unknown'])[0]
+                        genre = audio.get('genre', ['Unknown'])[0]
+                        year = audio.get('date', ['Unknown'])[0]
+                    except ID3NoHeaderError:
+                        artist = 'Unknown'
+                        album = 'Unknown'
+                        genre = 'Unknown'
+                        year = 'Unknown'
+                    # Get rating from POPM frame
+                    try:
+                        id3 = ID3(file_path)
+                        popms = id3.getall('POPM')
+                        if popms:
+                            rating_val = popms[0].rating
+                            # Map 0-255 to 1-5 stars
+                            if rating_val >= 196:
+                                rating = '5'
+                            elif rating_val >= 128:
+                                rating = '4'
+                            elif rating_val >= 64:
+                                rating = '3'
+                            elif rating_val >= 1:
+                                rating = '2'
+                            else:
+                                rating = '1'
+                        else:
+                            rating = 'Unknown'
+                    except Exception:
+                        rating = 'Unknown'
+                    with doc_tag('tr'):
+                        with doc_tag('td'):
+                            doc_text(file_path)
+                        with doc_tag('td'):
+                            doc_text(artist)
+                        with doc_tag('td'):
+                            doc_text(album)
+                        with doc_tag('td'):
+                            doc_text(genre)
+                        with doc_tag('td'):
+                            doc_text(rating)
+                        with doc_tag('td'):
+                            doc_text(year)
+
+                if recursive:
+                    for root, _, files in os.walk(directory):
+                        for file in files:
+                            if file.lower().endswith('.mp3'):
+                                file_path = os.path.join(root, file)
+                                process_file(file_path, tag, text)
+                else:
+                    for file in os.listdir(directory):
+                        file_path = os.path.join(directory, file)
+                        if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                            process_file(file_path, tag, text)
+
     html_content = doc.getvalue()
     with open('mp3_tags.html', 'w', encoding='utf-8') as f:
         f.write(html_content)
@@ -117,49 +131,60 @@ def show_folder_tags_in_pretty_HTML(directory):
     print(f"HTML file 'mp3_tags.html' generated successfully and log saved to '{log_file_path}'.")
 
 
-def show_folder_tags(directory):
+def show_folder_tags(directory, recursive):
     """
-    Prints a table of Artist, Album, Genre, and Rating tags for all .mp3 files in the given directory.
+    Prints a table of tags for .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     """
     from mutagen.id3 import POPM
     table = PrettyTable()
     table.field_names = ["File Path", "Artist", "Album", "Genre", "Rating", "Year"]
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = EasyID3(file_path)
-                    artist = audio.get('artist', ['Unknown'])[0]
-                    album = audio.get('album', ['Unknown'])[0]
-                    genre = audio.get('genre', ['Unknown'])[0]
-                    year = audio.get('date', ['Unknown'])[0]
-                except ID3NoHeaderError:
-                    artist = 'Unknown'
-                    album = 'Unknown'
-                    genre = 'Unknown'
-                    year = 'Unknown'
-                # Get rating from POPM frame
-                try:
-                    id3 = ID3(file_path)
-                    popms = id3.getall('POPM')
-                    if popms:
-                        rating_val = popms[0].rating
-                        if rating_val >= 196:
-                            rating = '5'
-                        elif rating_val >= 128:
-                            rating = '4'
-                        elif rating_val >= 64:
-                            rating = '3'
-                        elif rating_val >= 1:
-                            rating = '2'
-                        else:
-                            rating = '1'
-                    else:
-                        rating = 'Unknown'
-                except Exception:
-                    rating = 'Unknown'
-                table.add_row([file_path, artist, album, genre, rating, year])
+
+    def process_file(file_path, tbl):
+        try:
+            audio = EasyID3(file_path)
+            artist = audio.get('artist', ['Unknown'])[0]
+            album = audio.get('album', ['Unknown'])[0]
+            genre = audio.get('genre', ['Unknown'])[0]
+            year = audio.get('date', ['Unknown'])[0]
+        except ID3NoHeaderError:
+            artist = 'Unknown'
+            album = 'Unknown'
+            genre = 'Unknown'
+            year = 'Unknown'
+        # Get rating from POPM frame
+        try:
+            id3 = ID3(file_path)
+            popms = id3.getall('POPM')
+            if popms:
+                rating_val = popms[0].rating
+                if rating_val >= 196:
+                    rating = '5'
+                elif rating_val >= 128:
+                    rating = '4'
+                elif rating_val >= 64:
+                    rating = '3'
+                elif rating_val >= 1:
+                    rating = '2'
+                else:
+                    rating = '1'
+            else:
+                rating = 'Unknown'
+        except Exception:
+            rating = 'Unknown'
+        tbl.add_row([file_path, artist, album, genre, rating, year])
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, table)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, table)
     print(table)
 
 
@@ -175,91 +200,124 @@ def write_log(log_entries, operation):
     print(f"{operation.capitalize()} operation completed. Log saved to '{log_file_path}'.")
 
 
-def set_artist_tag(directory, artist_name):
+def set_artist_tag(directory, artist_name, recursive):
     """
-    Sets the 'Artist' tag for all .mp3 files in the given directory.
+    Sets the 'Artist' tag for .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     Logs each file processed or skipped.
     """
     log_entries = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = EasyID3(file_path)
-                except ID3NoHeaderError:
-                    try:
-                        from mutagen.id3 import ID3
-                        id3 = ID3()
-                        id3.save(file_path)
-                        audio = EasyID3(file_path)
-                    except Exception as e:
-                        log_entries.append(f"Skipping file {file_path}: {e}")
-                        continue
-                audio['artist'] = artist_name
-                audio.save(file_path)
-                log_entries.append(f"Set artist tag for {file_path}")
+
+    def process_file(file_path, entries):
+        try:
+            audio = EasyID3(file_path)
+        except ID3NoHeaderError:
+            try:
+                from mutagen.id3 import ID3
+                id3 = ID3()
+                id3.save(file_path)
+                audio = EasyID3(file_path)
+            except Exception as e:
+                entries.append(f"Skipping file {file_path}: {e}")
+                return
+        audio['artist'] = artist_name
+        audio.save(file_path)
+        entries.append(f"Set artist tag for {file_path}")
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, log_entries)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, log_entries)
     write_log(log_entries, "artist_tagging")
 
 
-def set_album_tag(directory, album_name):
+def set_album_tag(directory, album_name, recursive):
     """
-    Sets the 'Album' tag for all .mp3 files in the given directory.
+    Sets the 'Album' tag for .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     Logs each file processed or skipped.
     """
     log_entries = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = EasyID3(file_path)
-                except ID3NoHeaderError:
-                    try:
-                        from mutagen.id3 import ID3
-                        id3 = ID3()
-                        id3.save(file_path)
-                        audio = EasyID3(file_path)
-                    except Exception as e:
-                        log_entries.append(f"Skipping file {file_path}: {e}")
-                        continue
-                audio['album'] = album_name
-                audio.save(file_path)
-                log_entries.append(f"Set album tag for {file_path}")
+
+    def process_file(file_path, entries):
+        try:
+            audio = EasyID3(file_path)
+        except ID3NoHeaderError:
+            try:
+                from mutagen.id3 import ID3
+                id3 = ID3()
+                id3.save(file_path)
+                audio = EasyID3(file_path)
+            except Exception as e:
+                entries.append(f"Skipping file {file_path}: {e}")
+                return
+        audio['album'] = album_name
+        audio.save(file_path)
+        entries.append(f"Set album tag for {file_path}")
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, log_entries)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, log_entries)
     write_log(log_entries, "album_tagging")
 
 
-def set_genre_tag(directory, genre_name):
+def set_genre_tag(directory, genre_name, recursive):
     """
-    Sets the 'Genre' tag for all .mp3 files in the given directory.
+    Sets the 'Genre' tag for .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     Logs each file processed or skipped.
     """
     log_entries = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = EasyID3(file_path)
-                except ID3NoHeaderError:
-                    try:
-                        from mutagen.id3 import ID3
-                        id3 = ID3()
-                        id3.save(file_path)
-                        audio = EasyID3(file_path)
-                    except Exception as e:
-                        log_entries.append(f"Skipping file {file_path}: {e}")
-                        continue
-                audio['genre'] = genre_name
-                audio.save(file_path)
-                log_entries.append(f"Set genre tag for {file_path}")
+
+    def process_file(file_path, entries):
+        try:
+            audio = EasyID3(file_path)
+        except ID3NoHeaderError:
+            try:
+                from mutagen.id3 import ID3
+                id3 = ID3()
+                id3.save(file_path)
+                audio = EasyID3(file_path)
+            except Exception as e:
+                entries.append(f"Skipping file {file_path}: {e}")
+                return
+        audio['genre'] = genre_name
+        audio.save(file_path)
+        entries.append(f"Set genre tag for {file_path}")
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, log_entries)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, log_entries)
     write_log(log_entries, "genre_tagging")
 
 
-def set_rating_tag(directory, rating):
+def set_rating_tag(directory, rating, recursive):
     """
-    Sets a user-defined rating (1-5) for all .mp3 files in the given directory.
-    Uses the POPM (Popularimeter) frame for rating.
+    Sets a user-defined rating (1-5) for .mp3 files using the POPM frame.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     Logs each file processed or skipped.
     """
     from mutagen.id3 import POPM
@@ -267,32 +325,43 @@ def set_rating_tag(directory, rating):
     # Map 1-5 stars to 0-255 scale (commonly used by players)
     rating_map = {1: 1, 2: 64, 3: 128, 4: 196, 5: 255}
     popm_rating = rating_map.get(rating, 0)
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = ID3(file_path)
-                except ID3NoHeaderError:
-                    try:
-                        audio = ID3()
-                        audio.add_tags()
-                        audio.save(file_path)
-                        audio = ID3(file_path)
-                    except Exception as e:
-                        log_entries.append(f"Skipping file {file_path}: {e}")
-                        continue
-                # Set POPM frame (email, rating, play count)
-                audio.delall('POPM')
-                audio.add(POPM(email='user@example.com', rating=popm_rating, count=0))
+
+    def process_file(file_path, entries):
+        try:
+            audio = ID3(file_path)
+        except ID3NoHeaderError:
+            try:
+                audio = ID3()
+                audio.add_tags()
                 audio.save(file_path)
-                log_entries.append(f"Set rating {rating} for {file_path}")
+                audio = ID3(file_path)
+            except Exception as e:
+                entries.append(f"Skipping file {file_path}: {e}")
+                return
+        # Set POPM frame (email, rating, play count)
+        audio.delall('POPM')
+        audio.add(POPM(email='user@example.com', rating=popm_rating, count=0))
+        audio.save(file_path)
+        entries.append(f"Set rating {rating} for {file_path}")
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, log_entries)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, log_entries)
     write_log(log_entries, "rating_tagging")
 
 
-def set_cover_art(directory, image_path):
+def set_cover_art(directory, image_path, recursive):
     """
-    Embeds a cover art image (JPG/PNG) into all .mp3 files in the given directory.
+    Embeds cover art (JPG/PNG) into .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     Logs each file processed or skipped.
     """
     from mutagen.id3 import APIC, error
@@ -312,58 +381,79 @@ def set_cover_art(directory, image_path):
     except Exception as e:
         print(f"Failed to read image file: {e}")
         return
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = ID3(file_path)
-                except ID3NoHeaderError:
-                    try:
-                        audio = ID3()
-                        audio.add_tags()
-                        audio.save(file_path)
-                        audio = ID3(file_path)
-                    except Exception as e:
-                        log_entries.append(f"Skipping file {file_path}: {e}")
-                        continue
-                audio.delall('APIC')
-                audio.add(APIC(
-                    encoding=3,  # UTF-8
-                    mime=mime,
-                    type=3,  # Cover (front)
-                    desc='Cover',
-                    data=img_data
-                ))
+
+    def process_file(file_path, entries):
+        try:
+            audio = ID3(file_path)
+        except ID3NoHeaderError:
+            try:
+                audio = ID3()
+                audio.add_tags()
                 audio.save(file_path)
-                log_entries.append(f"Embedded cover art for {file_path}")
+                audio = ID3(file_path)
+            except Exception as e:
+                entries.append(f"Skipping file {file_path}: {e}")
+                return
+        audio.delall('APIC')
+        audio.add(APIC(
+            encoding=3,  # UTF-8
+            mime=mime,
+            type=3,  # Cover (front)
+            desc='Cover',
+            data=img_data
+        ))
+        audio.save(file_path)
+        entries.append(f"Embedded cover art for {file_path}")
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, log_entries)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, log_entries)
     write_log(log_entries, "coverart_tagging")
 
 
-def set_year_tag(directory, year_value):
+def set_year_tag(directory, year_value, recursive):
     """
-    Sets the 'Year' tag for all .mp3 files in the given directory.
+    Sets the 'Year' tag for .mp3 files.
+    Processes files in the given directory. If 'recursive' is True, also processes subdirectories.
     Logs each file processed or skipped.
     """
     log_entries = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.mp3'):
-                file_path = os.path.join(root, file)
-                try:
-                    audio = EasyID3(file_path)
-                except ID3NoHeaderError:
-                    try:
-                        from mutagen.id3 import ID3
-                        id3 = ID3()
-                        id3.save(file_path)
-                        audio = EasyID3(file_path)
-                    except Exception as e:
-                        log_entries.append(f"Skipping file {file_path}: {e}")
-                        continue
-                audio['date'] = year_value
-                audio.save(file_path)
-                log_entries.append(f"Set year tag to {year_value} for {file_path}")
+
+    def process_file(file_path, entries):
+        try:
+            audio = EasyID3(file_path)
+        except ID3NoHeaderError:
+            try:
+                from mutagen.id3 import ID3
+                id3 = ID3()
+                id3.save(file_path)
+                audio = EasyID3(file_path)
+            except Exception as e:
+                entries.append(f"Skipping file {file_path}: {e}")
+                return
+        audio['date'] = year_value
+        audio.save(file_path)
+        entries.append(f"Set year tag to {year_value} for {file_path}")
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file)
+                    process_file(file_path, log_entries)
+    else:
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and file.lower().endswith('.mp3'):
+                process_file(file_path, log_entries)
     write_log(log_entries, "year_tagging")
 
 
@@ -381,6 +471,7 @@ def main():
     parser.add_argument('-y', '--year', type=str, help='Year to set (e.g., 2023)')
     parser.add_argument('--show', action='store_true', help='Show tags of all .mp3 files in the folder')
     parser.add_argument('--html', action='store_true', help='Save tags of all .mp3 files in the folder as HTML')
+    parser.add_argument('-R', '--recursive', action='store_true', help='Recursively process files in subdirectories. If not set, only files in the specified folder are processed.')
 
     args = parser.parse_args()
 
@@ -388,21 +479,21 @@ def main():
     folder = os.path.abspath(os.path.normpath(args.folder))
 
     if args.show and args.html:
-        show_folder_tags_in_pretty_HTML(folder)
+        show_folder_tags_in_pretty_HTML(folder, args.recursive)
     elif args.show:
-        show_folder_tags(folder)
+        show_folder_tags(folder, args.recursive)
     if args.album:
-        set_album_tag(folder, args.album)
+        set_album_tag(folder, args.album, args.recursive)
     if args.artist:
-        set_artist_tag(folder, args.artist)
+        set_artist_tag(folder, args.artist, args.recursive)
     if args.genre:
-        set_genre_tag(folder, args.genre)
+        set_genre_tag(folder, args.genre, args.recursive)
     if args.rating:
-        set_rating_tag(folder, args.rating)
+        set_rating_tag(folder, args.rating, args.recursive)
     if args.cover_art:
-        set_cover_art(folder, args.cover_art)
+        set_cover_art(folder, args.cover_art, args.recursive)
     if args.year:
-        set_year_tag(folder, args.year)
+        set_year_tag(folder, args.year, args.recursive)
 
 
 if __name__ == "__main__":
