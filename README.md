@@ -57,6 +57,20 @@ You can use `tag_album.py` to update the album and artist tags of all MP3 files 
   python3 tag_album.py --help
   ```
 
+## Logging
+
+This script utilizes Python's standard `logging` module to record its operations and any issues encountered.
+
+-   **Log File**: All log messages are saved to a file named `mp3tagging.log`, which is created in the same directory from where the script is executed.
+-   **Information Logged**:
+    -   Details of successful operations, such as when tags are successfully set for a file.
+    -   Errors that occur during processing, for instance, if a file cannot be loaded or a tag cannot be written.
+    -   Summary messages at the end of batch operations (e.g., "Finished artist tagging operation. Processed X files, Y errors.").
+-   **Log Levels**:
+    -   The console output provides a summary of important events and errors (INFO level and above).
+    -   The `mp3tagging.log` file contains more detailed information, including DEBUG level messages, which can be helpful for in-depth troubleshooting.
+-   **Purpose**: These logs are useful for tracking the script's activity, verifying changes made to your files, and diagnosing any problems that may arise.
+
 # How to Install and Run
 
 To set up a virtual environment and install the required packages for `tag_album.py`, follow these steps:

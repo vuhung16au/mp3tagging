@@ -10,9 +10,23 @@ from mutagen.id3 import ID3, ID3NoHeaderError # Added ID3NoHeaderError here
 # This assumes tag-album.py is in the parent directory of test/
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import tag_album 
+import logging
+
+# Configure a specific logger for tests
+test_logger = logging.getLogger("test_tag_album_logger")
+test_logger.setLevel(logging.DEBUG)
+# Prevent test logs from propagating to the root logger or other handlers
+test_logger.propagate = False 
+# Add a file handler to the test logger to capture its output
+test_log_file_path = "test_tag_album.log"
+test_file_handler = logging.FileHandler(test_log_file_path)
+test_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+test_logger.addHandler(test_file_handler)
+
 
 class TestTagAlbum(unittest.TestCase):
     def setUp(self):
+        self.logger = test_logger
         self.test_dir = "temp_test_mp3s"
         os.makedirs(self.test_dir, exist_ok=True)
         
@@ -52,10 +66,14 @@ class TestTagAlbum(unittest.TestCase):
             shutil.rmtree(self.test_dir)
         if os.path.exists("mp3_tags.html"):
             os.remove("mp3_tags.html")
+        if os.path.exists(test_log_file_path): # Clean up test log file
+            os.remove(test_log_file_path)
+        if os.path.exists("mp3tagging.log"): # Clean up main log file if created by subprocess
+            os.remove("mp3tagging.log")
         # Do not remove "logs" directory as it might be used by the script generally.
 
     def test_set_year_tag(self):
-        tag_album.set_year_tag(self.test_dir, "2023", recursive=False)
+        tag_album.set_year_tag(self.test_dir, "2023", recursive=False, logger=self.logger)
         try:
             audio = EasyID3(self.test_mp3_path)
             self.assertEqual(audio['date'], ['2023'])
@@ -79,6 +97,17 @@ class TestTagAlbum(unittest.TestCase):
         old_stdout = sys.stdout # Save current stdout
         sys.stdout = captured_output # Redirect stdout
         try:
+            # Note: show_folder_tags does not take a logger argument as it's display-only
+            # and its internal errors are logged by the logger instance created in tag_album.py's main
+            # or by the passed logger in the set_* functions.
+            # For direct calls like this in tests, if we wanted its errors logged to test_log_file_path,
+            # we would need to modify show_folder_tags to accept a logger.
+            # However, the task implies modifying calls for functions that *were changed* to accept a logger.
+            # show_folder_tags and show_folder_tags_in_pretty_HTML were not changed to accept logger.
+            # Their internal process_file functions use the global `logger` from tag_album.
+            # For this test, we'll assume the global logger in tag_album is active if these functions are called directly.
+            # To properly test logging from these functions, we'd need to control tag_album.logger.
+            # For now, we test their functionality. Logging for them will be covered by subprocess tests.
             tag_album.show_folder_tags(self.test_dir, recursive=False)
         finally:
             sys.stdout = old_stdout # Restore stdout
@@ -97,6 +126,7 @@ class TestTagAlbum(unittest.TestCase):
         audio['date'] = '2025'
         audio.save()
 
+        # Similar to show_folder_tags, show_folder_tags_in_pretty_HTML uses the global logger.
         tag_album.show_folder_tags_in_pretty_HTML(self.test_dir, recursive=False)
         
         self.assertTrue(os.path.exists("mp3_tags.html"), "HTML report file was not generated.")
@@ -344,6 +374,7 @@ if __name__ == '__main__':
 
 class TestRecursiveBehavior(unittest.TestCase):
     def setUp(self):
+        self.logger = test_logger
         self.base_dir = "temp_test_recursive"
         self.subdir = os.path.join(self.base_dir, "subdir")
         self.root_mp3_path = os.path.join(self.base_dir, "root_test.mp3")
@@ -385,10 +416,13 @@ class TestRecursiveBehavior(unittest.TestCase):
     def tearDown(self):
         if os.path.exists(self.base_dir):
             shutil.rmtree(self.base_dir)
-        if os.path.exists("mp3_tags.html"): # Added cleanup for mp3_tags.html
+        if os.path.exists("mp3_tags.html"): 
             os.remove("mp3_tags.html")
+        if os.path.exists(test_log_file_path): # Clean up test log file
+            os.remove(test_log_file_path)
+        if os.path.exists("mp3tagging.log"): # Clean up main log file if created by subprocess
+            os.remove("mp3tagging.log")
         # Do not remove "logs" as it's a general script directory
-        # Do not remove mp3_tags.html here as other tests might generate/use it.
 
     def test_non_recursive_tagging(self):
         album_name = "NonRecursiveTestAlbum"
@@ -568,3 +602,254 @@ class TestRecursiveBehavior(unittest.TestCase):
         self.assertIn(f"<td>{expected_sub_path_in_html}</td>", html_content, f"The filename '{expected_sub_path_in_html}' is missing from HTML output.")
         
         # Cleanup of mp3_tags.html is handled by tearDown method in this class
+
+
+class TestLogging(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = "temp_log_test_mp3s"
+        os.makedirs(self.test_dir, exist_ok=True)
+        original_mp3_src_path = os.path.join(os.path.dirname(__file__), 'test-music.mp3')
+        self.test_mp3_path = os.path.join(self.test_dir, "log_test.mp3")
+
+        if os.path.exists(original_mp3_src_path):
+            shutil.copy(original_mp3_src_path, self.test_mp3_path)
+        else:
+            with open(self.test_mp3_path, 'wb') as f:
+                f.write(b'\xFF\xFB\x10\xC0\x00\x00TAG') # Minimal MP3
+            ID3().save(self.test_mp3_path)
+        
+        # Ensure the main log file does not exist from a previous failed run
+        if os.path.exists("mp3tagging.log"):
+            os.remove("mp3tagging.log")
+        if os.path.exists(test_log_file_path): # remove specific test logger file too
+            os.remove(test_log_file_path)
+
+
+    def tearDown(self):
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+        if os.path.exists("mp3tagging.log"):
+            os.remove("mp3tagging.log")
+        if os.path.exists("mp3_tags.html"):
+            os.remove("mp3_tags.html")
+        if os.path.exists(test_log_file_path): # cleanup specific test logger file
+            os.remove(test_log_file_path)
+
+    def test_log_file_creation_and_content_set_tag_via_subprocess(self):
+        test_artist_name = "Logging Test Artist"
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+        cmd = [
+            sys.executable, script_path,
+            "-f", self.test_dir,
+            "-r", test_artist_name
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"Script execution failed: {e.stderr}\n{e.stdout}")
+
+        self.assertTrue(os.path.exists("mp3tagging.log"), "mp3tagging.log was not created.")
+        
+        with open("mp3tagging.log", 'r') as f:
+            log_content = f.read()
+        
+        self.assertIn(f"Finished artist tagging operation. Processed 1 files, 0 errors.", log_content)
+        self.assertIn(f"Set artist tag for {self.test_mp3_path}", log_content)
+
+    def test_log_file_creation_and_content_show_tags_html_via_subprocess(self):
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+        cmd = [
+            sys.executable, script_path,
+            "-f", self.test_dir,
+            "--show", "--html" 
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"Script execution failed: {e.stderr}\n{e.stdout}")
+
+        self.assertTrue(os.path.exists("mp3tagging.log"), "mp3tagging.log was not created for --show --html.")
+        
+        with open("mp3tagging.log", 'r') as f:
+            log_content = f.read()
+        # Check for the specific log message related to HTML generation
+        self.assertIn("HTML file 'mp3_tags.html' generated successfully.", log_content)
+        # Check if the logger was active during file processing by looking for potential error messages
+        # (even if none occurred, this shows the logger was configured by main())
+        # A more robust check would be if show_folder_tags_in_pretty_HTML logged start/end of its operation.
+        # For now, we assume if the main success message is there, logging was active.
+        self.assertTrue(os.path.exists("mp3_tags.html")) # Also ensure HTML file was created
+
+    def test_log_file_creation_show_tags_plaintext_via_subprocess(self):
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+        cmd = [
+            sys.executable, script_path,
+            "-f", self.test_dir,
+            "--show"
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"Script execution failed: {e.stderr}\n{e.stdout}")
+
+        self.assertTrue(os.path.exists("mp3tagging.log"), "mp3tagging.log was not created for --show.")
+        # For plaintext show, there isn't a unique summary log from show_folder_tags itself.
+        # The presence of the log file and lack of errors in it would be the main check.
+        # We can check for the generic "INFO" level messages that might indicate activity
+        # or at least that the logger was configured and ran without issue.
+        # For instance, if there were an error processing a file, it would be logged.
+        # So, absence of error for the test file is a good sign.
+        with open("mp3tagging.log", 'r') as f:
+            log_content = f.read()
+        self.assertNotIn(f"Error processing file {self.test_mp3_path}", log_content) # No error for the valid mp3
+        # Check that the logger was initialized by main()
+        self.assertIn("Logging configured.", log_content) # Expecting this from main
+
+    def test_error_handling_for_unsupported_file_type(self):
+        # Add a non-MP3 file to the test directory
+        non_mp3_path = os.path.join(self.test_dir, "test.txt")
+        with open(non_mp3_path, 'w') as f:
+            f.write("This is not an mp3 file.")
+
+        test_artist_name = "Resilience Test Artist"
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+        cmd = [
+            sys.executable, script_path,
+            "-f", self.test_dir,
+            "-r", test_artist_name
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"Script execution failed: {e.stderr}\n{e.stdout}")
+
+        # Check the log file
+        self.assertTrue(os.path.exists("mp3tagging.log"))
+        with open("mp3tagging.log", 'r') as f:
+            log_content = f.read()
+        
+        # The script should silently skip the .txt file because of the .endswith('.mp3') check.
+        # So, it processes 1 MP3 file successfully and encounters 0 errors for files it tries to process.
+        self.assertIn(f"Finished artist tagging operation. Processed 1 files, 0 errors.", log_content)
+        self.assertNotIn(f"Error processing file {non_mp3_path}", log_content) # Should not attempt to process
+        self.assertNotIn(f"Failed to process file {non_mp3_path}", log_content) # Alternative error
+
+        # Verify the valid MP3 was processed
+        try:
+            audio = EasyID3(self.test_mp3_path)
+            self.assertEqual(audio['artist'], [test_artist_name])
+        except Exception as e:
+            self.fail(f"Failed to read tag from valid MP3 after script run with mixed files: {e}")
+
+    @unittest.mock.patch('tag_album.EasyID3')
+    def test_error_handling_id3_load_failure_mocked_easyid3(self, mock_easy_id3):
+        # Create two MP3 files for this test
+        mp3_file1 = self.test_mp3_path # Uses the one from setUp
+        mp3_file2_name = "another_test.mp3"
+        mp3_file2 = os.path.join(self.test_dir, mp3_file2_name)
+        shutil.copy(mp3_file1, mp3_file2)
+
+        # Configure the mock: file1 will fail, file2 will succeed (use default mock behavior)
+        # The mock_easy_id3 will apply to all calls to EasyID3 within the patched scope.
+        # We need it to behave differently based on the input.
+        def side_effect_func(file_path):
+            if file_path == mp3_file1:
+                raise Exception("Simulated EasyID3 load error for file1")
+            # For mp3_file2, return a mock object that can be saved
+            mock_audio = unittest.mock.MagicMock(spec=EasyID3)
+            mock_audio.get.return_value = ['Some Value'] # For any get call
+            # Ensure it has the file_path attribute if your code uses it (it does for logging)
+            mock_audio.filename = file_path 
+            return mock_audio
+
+        mock_easy_id3.side_effect = side_effect_func
+        
+        # Clear the test-specific log file before the run
+        if os.path.exists(test_log_file_path):
+            os.remove(test_log_file_path)
+
+        tag_album.set_artist_tag(self.test_dir, "Mock Test Artist", recursive=False, logger=test_logger)
+        
+        self.assertTrue(os.path.exists(test_log_file_path))
+        with open(test_log_file_path, 'r') as f:
+            log_content = f.read()
+
+        self.assertIn(f"Error loading audio for {mp3_file1}: Simulated EasyID3 load error for file1", log_content)
+        self.assertIn(f"Set artist tag for {mp3_file2}", log_content)
+        self.assertIn("Finished artist tagging operation. Processed 1 files, 1 errors.", log_content)
+        
+        # Verify mp3_file2 tag was set (mock_easy_id3(mp3_file2).save() was called)
+        # We can't directly check the file tag here as EasyID3 is mocked.
+        # We rely on the log messages and the mock's save method being called on the non-failing instance.
+        # To assert save was called on the mock for mp3_file2:
+        # Find the mock instance associated with mp3_file2. This is a bit tricky with side_effect.
+        # Easier to check that the mock for mp3_file1 did not have save called,
+        # and the one for mp3_file2 did.
+        
+        # Let's check calls to the main mock_easy_id3
+        # Expected calls: EasyID3(mp3_file1), EasyID3(mp3_file2)
+        self.assertIn(unittest.mock.call(mp3_file1), mock_easy_id3.call_args_list)
+        self.assertIn(unittest.mock.call(mp3_file2), mock_easy_id3.call_args_list)
+
+        # Check that save was called on the object returned for mp3_file2
+        # The actual audio object returned by side_effect_func for mp3_file2 needs to have its save method checked.
+        # This requires a more complex mock setup, or trusting the log. For now, trust the log.
+
+    @unittest.mock.patch('tag_album.ID3')
+    def test_error_handling_id3_load_failure_mocked_id3(self, mock_id3_class):
+        # Test for functions using ID3 directly, e.g., set_rating_tag
+        mp3_file1 = self.test_mp3_path
+        mp3_file2_name = "another_id3_test.mp3"
+        mp3_file2 = os.path.join(self.test_dir, mp3_file2_name)
+        shutil.copy(mp3_file1, mp3_file2)
+
+        # Configure the mock for ID3 constructor
+        mock_audio_failing = unittest.mock.MagicMock(spec=ID3)
+        mock_audio_failing.side_effect = Exception("Simulated ID3 load error for file1")
+        
+        mock_audio_working = unittest.mock.MagicMock(spec=ID3)
+        # mock_audio_working.add.return_value = None
+        # mock_audio_working.delall.return_value = None
+        # mock_audio_working.save.return_value = None
+
+
+        def id3_side_effect(file_path_arg, *args, **kwargs):
+            if file_path_arg == mp3_file1:
+                # This will make ID3(mp3_file1) raise the error
+                raise Exception("Simulated ID3 load error for file1")
+            # For mp3_file2, return a functional mock
+            # We need to handle the case where ID3() is called with no args (for creating new tags)
+            # The mock_id3_class itself is the constructor.
+            # When ID3(filepath) is called, it's the constructor.
+            # So, the side_effect for mock_id3_class (the constructor) should return an instance.
+            
+            # If it's an attempt to load file2, return a mock that can be worked with
+            instance = unittest.mock.MagicMock(spec=ID3)
+            instance.filename = file_path_arg # Store filename if needed
+            return instance
+
+        mock_id3_class.side_effect = id3_side_effect
+
+        if os.path.exists(test_log_file_path):
+            os.remove(test_log_file_path)
+
+        tag_album.set_rating_tag(self.test_dir, 3, recursive=False, logger=test_logger)
+        
+        self.assertTrue(os.path.exists(test_log_file_path))
+        with open(test_log_file_path, 'r') as f:
+            log_content = f.read()
+        
+        self.assertIn(f"Error loading audio for {mp3_file1}: Simulated ID3 load error for file1", log_content)
+        self.assertIn(f"Set rating 3 for {mp3_file2}", log_content)
+        self.assertIn("Finished rating tagging operation. Processed 1 files, 1 errors.", log_content)
+        
+        # Verify ID3(mp3_file1) and ID3(mp3_file2) were called
+        # Calls to the mock_id3_class (constructor)
+        self.assertIn(unittest.mock.call(mp3_file1), mock_id3_class.call_args_list)
+        self.assertIn(unittest.mock.call(mp3_file2), mock_id3_class.call_args_list)
+        
+        # Check that save was called on the instance for mp3_file2
+        # This requires getting the return_value for the call to ID3(mp3_file2)
+        # and checking its .save() method.
+        # Example: mock_id3_class.return_value.save.assert_called() - but this only works if only one instance is created or the last one.
+        # For multiple instances with different behaviors, it's more complex. Trusting the log for now.
