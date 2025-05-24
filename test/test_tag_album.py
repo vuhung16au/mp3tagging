@@ -55,7 +55,7 @@ class TestTagAlbumYear(unittest.TestCase):
         # Do not remove "logs" directory as it might be used by the script generally.
 
     def test_set_year_tag(self):
-        tag_album.set_year_tag(self.test_dir, "2023")
+        tag_album.set_year_tag(self.test_dir, "2023", recursive=False)
         try:
             audio = EasyID3(self.test_mp3_path)
             self.assertEqual(audio['date'], ['2023'])
@@ -79,7 +79,7 @@ class TestTagAlbumYear(unittest.TestCase):
         old_stdout = sys.stdout # Save current stdout
         sys.stdout = captured_output # Redirect stdout
         try:
-            tag_album.show_folder_tags(self.test_dir)
+            tag_album.show_folder_tags(self.test_dir, recursive=False)
         finally:
             sys.stdout = old_stdout # Restore stdout
         
@@ -97,7 +97,7 @@ class TestTagAlbumYear(unittest.TestCase):
         audio['date'] = '2025'
         audio.save()
 
-        tag_album.show_folder_tags_in_pretty_HTML(self.test_dir)
+        tag_album.show_folder_tags_in_pretty_HTML(self.test_dir, recursive=False)
         
         self.assertTrue(os.path.exists("mp3_tags.html"), "HTML report file was not generated.")
         with open("mp3_tags.html", 'r', encoding='utf-8') as f:
@@ -126,7 +126,7 @@ class TestTagAlbumYear(unittest.TestCase):
         old_stdout = sys.stdout # Save current stdout
         sys.stdout = captured_output # Redirect stdout
         try:
-            tag_album.show_folder_tags(self.test_dir)
+            tag_album.show_folder_tags(self.test_dir, recursive=False)
         finally:
             sys.stdout = old_stdout # Restore stdout
         
@@ -198,3 +198,100 @@ class TestTagAlbumYear(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestRecursiveBehavior(unittest.TestCase):
+    def setUp(self):
+        self.base_dir = "temp_test_recursive"
+        self.subdir = os.path.join(self.base_dir, "subdir")
+        self.root_mp3_path = os.path.join(self.base_dir, "root_test.mp3")
+        self.sub_mp3_path = os.path.join(self.subdir, "sub_test.mp3")
+        
+        os.makedirs(self.subdir, exist_ok=True)
+        
+        original_mp3_src_path = os.path.join(os.path.dirname(__file__), 'test-music.mp3')
+        
+        if not os.path.exists(original_mp3_src_path):
+            # Create minimal MP3s if source is missing (fallback like in TestTagAlbumYear)
+            with open(self.root_mp3_path, 'wb') as f:
+                f.write(b'\xFF\xFB\x10\xC0\x00\x00TAG') # Minimal MP3
+            ID3().save(self.root_mp3_path) # Ensure it has basic ID3 structure
+            with open(self.sub_mp3_path, 'wb') as f:
+                f.write(b'\xFF\xFB\x10\xC0\x00\x00TAG') # Minimal MP3
+            ID3().save(self.sub_mp3_path) # Ensure it has basic ID3 structure
+        else:
+            shutil.copy(original_mp3_src_path, self.root_mp3_path)
+            shutil.copy(original_mp3_src_path, self.sub_mp3_path)
+
+        # Ensure logs directory exists for tag_album.py
+        os.makedirs("logs", exist_ok=True)
+        # Clear any pre-existing tags for a clean test slate
+        for mp3_path in [self.root_mp3_path, self.sub_mp3_path]:
+            try:
+                audio = EasyID3(mp3_path)
+                if 'album' in audio:
+                    del audio['album']
+                audio.save()
+            except ID3NoHeaderError: # If no header, create one
+                audio_id3 = ID3()
+                audio_id3.save(mp3_path)
+            except Exception as e:
+                # If there's another error, print it to help diagnose
+                print(f"Error clearing tags for {mp3_path}: {e}")
+
+
+    def tearDown(self):
+        if os.path.exists(self.base_dir):
+            shutil.rmtree(self.base_dir)
+        # Do not remove "logs" as it's a general script directory
+        # Do not remove mp3_tags.html here as other tests might generate/use it.
+
+    def test_non_recursive_tagging(self):
+        album_name = "NonRecursiveTestAlbum"
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+        cmd = [
+            sys.executable, script_path,
+            "-f", self.base_dir,
+            "-a", album_name
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"Script execution failed for non-recursive test: {e.stderr}")
+
+        root_audio = EasyID3(self.root_mp3_path)
+        self.assertIn('album', root_audio, "Album tag not set in root MP3 for non-recursive test.")
+        self.assertEqual(root_audio['album'], [album_name])
+
+        try:
+            sub_audio = EasyID3(self.sub_mp3_path)
+            self.assertNotIn('album', sub_audio, "Album tag WAS SET in sub MP3 for non-recursive test (should not have been).")
+        except ID3NoHeaderError:
+             # This is an acceptable outcome if the file initially had no tags and wasn't processed.
+            pass
+        except KeyError:
+            # This is also acceptable: key 'album' not found.
+            pass
+
+
+    def test_recursive_tagging(self):
+        album_name = "RecursiveTestAlbum"
+        script_path = os.path.join(os.path.dirname(__file__), '..', 'tag_album.py')
+        cmd = [
+            sys.executable, script_path,
+            "-f", self.base_dir,
+            "-a", album_name,
+            "-R" # Recursive flag
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            self.fail(f"Script execution failed for recursive test: {e.stderr}")
+
+        root_audio = EasyID3(self.root_mp3_path)
+        self.assertIn('album', root_audio, "Album tag not set in root MP3 for recursive test.")
+        self.assertEqual(root_audio['album'], [album_name])
+
+        sub_audio = EasyID3(self.sub_mp3_path)
+        self.assertIn('album', sub_audio, "Album tag not set in sub MP3 for recursive test.")
+        self.assertEqual(sub_audio['album'], [album_name])
