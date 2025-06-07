@@ -131,7 +131,7 @@ Usage examples:
     if args.fetch_and_set_acoustid_tags:
         log_entries = []
         files_processed_count = 0
-        acoustid_api_key = "MDCUvH3Ppp"
+        acoustid_api_key = "YiHCtGqK2I"
         requested_fields_list = [field.strip() for field in args.fields.split(',')]
 
         if args.recursive:
