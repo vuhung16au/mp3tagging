@@ -20,10 +20,45 @@ from tag_album_utils.set_tags import set_artist_tag, set_album_tag, set_genre_ta
 from tag_album_utils.fetch_metadata import fetch_metadata_from_musicbrainz
 from tag_album_utils.utils import write_log
 
+# The actual fetch_metadata_from_musicbrainz is imported from tag_album_utils.fetch_metadata
+# This function will now orchestrate calling it for the --fetch-and-set-from-mb option
+
+def fetch_and_set_metadata_from_mb(folder, fields_to_fetch, recursive):
+    """
+    Processes MP3 files in a folder to fetch and set metadata from MusicBrainz
+    for specified fields.
+    """
+    log_entries = []
+    files_processed_count = 0
+    if recursive:
+        for root, _, files in os.walk(folder):
+            for file_name in files:
+                if file_name.lower().endswith('.mp3'):
+                    file_path = os.path.join(root, file_name)
+                    # Call the imported utility function
+                    fetch_metadata_from_musicbrainz(file_path, log_entries, fields_to_fetch=fields_to_fetch)
+                    files_processed_count += 1
+    else:
+        for file_name in os.listdir(folder):
+            file_path = os.path.join(folder, file_name)
+            if os.path.isfile(file_path) and file_name.lower().endswith('.mp3'):
+                # Call the imported utility function
+                fetch_metadata_from_musicbrainz(file_path, log_entries, fields_to_fetch=fields_to_fetch)
+                files_processed_count += 1
+
+    if files_processed_count > 0:
+        write_log(log_entries, "metadata_fetching_selective") # New log file name for clarity
+        print(f"Processed {files_processed_count} files. See metadata_fetching_selective.log for details.")
+    else:
+        print("No MP3 files found to fetch selective metadata for.")
+
+
 def main():
     """
     Parses command-line arguments and executes the requested operations.
     """
+    # NOTE: The fetch_and_set_metadata_from_mb function definition was here due to a mistake in a previous step.
+    # It has been moved to the global scope.
     epilog_text = """
 Usage examples:
   Show tags:
@@ -50,6 +85,8 @@ Usage examples:
     parser.add_argument('--show', action='store_true', help='Display current ID3 tags of .mp3 files in a table format in the terminal.')
     parser.add_argument('--html', action='store_true', help='Generate an HTML file ("mp3_tags.html") displaying current ID3 tags.')
     parser.add_argument('--fetch-metadata', action='store_true', help='Fetch metadata from MusicBrainz for .mp3 files in the folder.')
+    parser.add_argument('--fetch-and-set-from-mb', type=str, help='Comma-separated list of fields to fetch and set from MusicBrainz. Quote the list if it contains spaces (e.g., --fetch-and-set-from-mb "artist, album, genre"). Supported fields: artist, album, genre, year, coverart, tracknumber, albumartist.')
+    parser.add_argument('--auto', action='store_true', help='Automatically fetch and set a default list of fields (artist, genre, album, title) from MusicBrainz. Overridden by --fetch-and-set-from-mb if also provided.')
     parser.add_argument('-R', '--recursive', action='store_true', help='Recursively process .mp3 files in subdirectories. If not set, only files in the specified folder are processed.')
 
     if len(sys.argv) == 1:
@@ -67,7 +104,9 @@ Usage examples:
         args.rating is not None,
         args.cover_art is not None,
         args.year is not None,
-        args.fetch_metadata
+        args.fetch_metadata,
+        args.fetch_and_set_from_mb is not None,
+        args.auto # Added --auto to action check
     ])
 
     if not action_or_tag_specified:
@@ -98,7 +137,13 @@ Usage examples:
     if args.year:
         set_year_tag(folder, args.year, args.recursive)
 
-    if args.fetch_metadata:
+    if args.fetch_and_set_from_mb:
+        fields_to_process = [field.strip() for field in args.fetch_and_set_from_mb.split(',')]
+        fetch_and_set_metadata_from_mb(folder, fields_to_process, args.recursive)
+    elif args.auto: # --auto is used, and --fetch-and-set-from-mb was NOT provided
+        default_auto_fields = ['artist', 'genre', 'album', 'title']
+        fetch_and_set_metadata_from_mb(folder, default_auto_fields, args.recursive)
+    elif args.fetch_metadata: # This is the old full fetch, only if the above two are not specified
         log_entries = []
         files_processed_count = 0
         if args.recursive:
@@ -106,19 +151,22 @@ Usage examples:
                 for file_name in files: # Renamed 'file' to 'file_name' to avoid conflict
                     if file_name.lower().endswith('.mp3'):
                         file_path = os.path.join(root, file_name)
-                        fetch_metadata_from_musicbrainz(file_path, log_entries)
+                        # For the --fetch-metadata option (fetch all), call without fields_to_fetch (or explicit None)
+                        fetch_metadata_from_musicbrainz(file_path, log_entries, fields_to_fetch=None)
                         files_processed_count +=1
         else:
             for file_name in os.listdir(folder): # Renamed 'file' to 'file_name'
                 file_path = os.path.join(folder, file_name)
                 if os.path.isfile(file_path) and file_name.lower().endswith('.mp3'):
-                    fetch_metadata_from_musicbrainz(file_path, log_entries)
+                     # For the --fetch-metadata option (fetch all), call without fields_to_fetch (or explicit None)
+                    fetch_metadata_from_musicbrainz(file_path, log_entries, fields_to_fetch=None)
                     files_processed_count += 1
 
         if files_processed_count > 0:
-            write_log(log_entries, "metadata_fetching") # write_log is imported
+            write_log(log_entries, "metadata_fetching_full") # Changed log name for clarity
+            print(f"Processed {files_processed_count} files (full fetch). See metadata_fetching_full.log for details.")
         else:
-            print("No MP3 files found to fetch metadata for.")
+            print("No MP3 files found to fetch full metadata for.")
 
 
 if __name__ == "__main__":
