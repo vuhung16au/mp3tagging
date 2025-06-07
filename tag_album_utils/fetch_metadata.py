@@ -142,3 +142,206 @@ def fetch_metadata_from_musicbrainz(file_path, log_entries_list):
         log_entries_list.append(f"Network error for {file_path} (e.g., fetching cover art): {exc}")
     except Exception as e:
         log_entries_list.append(f"An unexpected error occurred while processing {file_path}: {e}")
+
+
+import subprocess
+import json
+import os
+# requests is already imported
+# from mutagen.easyid3 import EasyID3 # Already imported
+# from mutagen.id3 import ID3NoHeaderError # Already imported
+from .set_tags import set_artist_tag, set_album_tag, set_genre_tag, set_title_tag # To be implemented in next step
+
+def fetch_metadata_from_acoustid(file_path, api_key, requested_fields, log_entries_list):
+    """
+    Fetches metadata from AcoustID for a given MP3 file and updates its ID3 tags.
+
+    Args:
+        file_path (str): The path to the MP3 file.
+        api_key (str): The AcoustID API key.
+        requested_fields (list): A list of strings indicating which tags to fetch and set.
+        log_entries_list (list): A list to append log messages to.
+    """
+    fpcalc_path = "fpcalc"
+    file_name = os.path.basename(file_path)
+
+    # 1. Check for fpcalc
+    try:
+        fpcalc_check = subprocess.run([fpcalc_path, "-version"], capture_output=True, text=True, check=False, timeout=5)
+        if fpcalc_check.returncode != 0:
+            log_entries_list.append(f"CRITICAL: fpcalc not found or not executable at '{fpcalc_path}'. Please ensure it is installed and in your PATH. Exit code {fpcalc_check.returncode}. Stderr: {fpcalc_check.stderr.strip()}")
+            return "FPCLAC_NOT_FOUND"
+    except FileNotFoundError:
+        log_entries_list.append(f"CRITICAL: fpcalc command not found at '{fpcalc_path}'. Please ensure it is installed and in your PATH.")
+        return "FPCLAC_NOT_FOUND"
+    except subprocess.TimeoutExpired:
+        log_entries_list.append(f"CRITICAL: fpcalc -version command timed out for '{fpcalc_path}'.")
+        return "FPCLAC_NOT_FOUND" # Or a different error like FPCLAC_TIMEOUT, but NOT_FOUND is actionable for user.
+    except Exception as e:
+        log_entries_list.append(f"CRITICAL: Failed to check fpcalc version for '{fpcalc_path}': {e}")
+        return "FPCLAC_NOT_FOUND" # Or a different error.
+
+    # 2. Execute fpcalc
+    try:
+        process = subprocess.run([fpcalc_path, "-json", file_path], capture_output=True, text=True, check=False, timeout=15) # check=False to handle error manually
+        if process.returncode != 0:
+            log_entries_list.append(f"Error for {file_name}: fpcalc execution failed with exit code {process.returncode}. Command: '{process.args}'. stderr: {process.stderr.strip()}")
+            return "FPCLAC_ERROR"
+        fpcalc_output = json.loads(process.stdout)
+        fingerprint = fpcalc_output.get("fingerprint")
+        duration = fpcalc_output.get("duration")
+
+        if not fingerprint or not duration:
+            log_entries_list.append(f"Error for {file_name}: Could not extract fingerprint or duration from fpcalc JSON output. Output: {process.stdout[:200]}")
+            return "FPCLAC_ERROR"
+        log_entries_list.append(f"Successfully obtained fingerprint and duration for {file_name}.")
+
+    # subprocess.CalledProcessError is not needed if check=False
+    except subprocess.TimeoutExpired:
+        log_entries_list.append(f"Error for {file_name}: fpcalc execution timed out for {file_path}.")
+        return "FPCLAC_ERROR"
+    except json.JSONDecodeError:
+        log_entries_list.append(f"Error for {file_name}: Could not decode JSON from fpcalc output. Output: {process.stdout[:200]}")
+        return "FPCLAC_ERROR"
+    except Exception as e:
+        log_entries_list.append(f"Error for {file_name}: An unexpected error occurred during fpcalc processing: {e}")
+        return "FPCLAC_ERROR"
+
+    # 3. Prepare for AcoustID API Call
+    acoustid_meta_sources = {
+        "title": "recordings",
+        "artist": "recordings", # "recordingids" also useful for artists if we want MBIDs
+        "album": "releasegroups", # "recordingids" also useful for album MBIDs via recordings
+        # "genre": "releasegroups" # Genre from releasegroups can be via tags, often user-submitted.
+                                 # Recordings can also have genres from MusicBrainz.
+    }
+    meta_param_parts = set(["compress"]) # "compress" is generally good to have.
+    for field in requested_fields:
+        source = acoustid_meta_sources.get(field)
+        if source:
+            meta_param_parts.add(source)
+
+    # Ensure essential sources if specific fields are requested
+    if "artist" in requested_fields : meta_param_parts.add("recordingids") # Needed for artist MBID
+    if "album" in requested_fields : meta_param_parts.add("recordingids") # Needed for album MBID via recordings->releasegroups
+    if "genre" in requested_fields: # Explicitly add sources that might contain genre
+        meta_param_parts.add("recordings") # For MB genres associated with recordings
+        meta_param_parts.add("releasegroups") # For user tags on release groups
+
+
+    if not meta_param_parts or meta_param_parts == {"compress"}: # If only "compress" is there, add defaults
+        meta_param = "recordings,releasegroups,compress"
+    else:
+        meta_param = ",".join(list(meta_param_parts))
+
+    log_entries_list.append(f"For {file_name}, using AcoustID meta: {meta_param}")
+
+
+    # 4. Call AcoustID API
+    api_url = "https://api.acoustid.org/v2/lookup"
+    params = {
+        "client": api_key,
+        "meta": meta_param,
+        "duration": str(int(duration)),
+        "fingerprint": fingerprint
+    }
+
+    try:
+        response = requests.get(api_url, params=params, timeout=10)
+        response.raise_for_status()
+        api_data = response.json()
+    except requests.exceptions.HTTPError as e:
+        log_entries_list.append(f"Error for {file_name}: AcoustID API request failed with HTTP status {e.response.status_code}: {e.response.text[:200]}")
+        return "SUCCESS" # Or specific API_ERROR, but problem was not fpcalc
+    except requests.exceptions.Timeout:
+        log_entries_list.append(f"Error for {file_name}: AcoustID API request timed out.")
+        return "SUCCESS" # Or specific API_ERROR
+    except requests.exceptions.RequestException as e:
+        log_entries_list.append(f"Error for {file_name}: AcoustID API request failed: {e}")
+        return "SUCCESS" # Or specific API_ERROR
+    except json.JSONDecodeError:
+        log_entries_list.append(f"Error for {file_name}: Could not decode JSON from AcoustID API response. Response: {response.text[:200]}")
+        return "SUCCESS" # Or specific API_ERROR
+
+    # 5. Process API Response
+    if api_data.get("status") == "ok" and api_data.get("results"):
+        results = api_data["results"]
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        best_result = results[0]
+        score = best_result.get("score", 0) * 100
+        log_entries_list.append(f"Found match for {file_name}: Score {score:.2f}%")
+
+        title_to_set = None
+        artist_to_set = None
+        album_to_set = None
+        genre_to_set = None
+
+        # Extract Tags
+        try:
+            if "title" in requested_fields and best_result.get("recordings"):
+                title_to_set = best_result["recordings"][0].get("title")
+                if not title_to_set: log_entries_list.append(f"Title not found in AcoustID response for {file_name}.")
+
+            if "artist" in requested_fields and best_result.get("recordings"):
+                if best_result["recordings"][0].get("artists"):
+                    artist_to_set = best_result["recordings"][0]["artists"][0].get("name")
+                    if not artist_to_set: log_entries_list.append(f"Artist name not found in AcoustID response for {file_name}.")
+                else:
+                    log_entries_list.append(f"Artist section not found in AcoustID recordings for {file_name}.")
+
+            if "album" in requested_fields:
+                # Album can be from recordings -> releasegroups
+                if best_result.get("recordings") and best_result["recordings"][0].get("releasegroups"):
+                    album_to_set = best_result["recordings"][0]["releasegroups"][0].get("title")
+                # Or directly from results -> releasegroups if that part of 'meta' was requested and fruitful
+                elif best_result.get("releasegroups"):
+                     album_to_set = best_result["releasegroups"][0].get("title")
+                if not album_to_set: log_entries_list.append(f"Album not found in AcoustID response for {file_name}.")
+
+            if "genre" in requested_fields:
+                # Try MusicBrainz genre from recordings first
+                if best_result.get("recordings") and best_result["recordings"][0].get("genres"):
+                    genre_to_set = best_result["recordings"][0]["genres"][0].get("name")
+                # Fallback to user tags on release groups (less reliable)
+                elif best_result.get("releasegroups") and best_result["releasegroups"][0].get("tags") and best_result["releasegroups"][0]["tags"].get("genre"):
+                     genre_to_set = best_result["releasegroups"][0]["tags"]["genre"][0] # take first genre tag
+                if not genre_to_set: log_entries_list.append(f"Genre not found or could not be determined from AcoustID response for {file_name}.")
+
+        except (KeyError, IndexError) as e:
+            log_entries_list.append(f"Error for {file_name}: Issue extracting tag from AcoustID response structure: {e}. Response snippet: {str(best_result)[:200]}")
+        except Exception as e: # Catch any other unexpected error during extraction
+            log_entries_list.append(f"Unexpected error extracting tags for {file_name}: {e}")
+
+
+        # 6. Set Tags using Mutagen (assuming adapted setters)
+        # Note: The set_..._tag functions are assumed to be adapted to take (file_path, value, False, log_entries_list)
+        # and that 'False' means 'not recursive' (as they operate on a single file here).
+        # This adaptation is part of the next subtask.
+
+        # Check if audio file can be loaded (basic check before trying to set tags)
+        try:
+            EasyID3(file_path) # Try to load, ID3NoHeaderError is fine for setting new tags
+        except ID3NoHeaderError:
+            log_entries_list.append(f"Info for {file_name}: No ID3 header, tags will be created.")
+        except Exception as e:
+            log_entries_list.append(f"Error for {file_name}: Cannot load audio file with EasyID3 to set tags: {e}. Skipping tag setting.")
+            return "SUCCESS" # File specific error, but fpcalc worked.
+
+        if title_to_set and "title" in requested_fields:
+            set_title_tag(file_path, title_to_set, False, log_entries_list) # False for not recursive
+        if artist_to_set and "artist" in requested_fields:
+            set_artist_tag(file_path, artist_to_set, False, log_entries_list)
+        if album_to_set and "album" in requested_fields:
+            set_album_tag(file_path, album_to_set, False, log_entries_list)
+        if genre_to_set and "genre" in requested_fields:
+            set_genre_tag(file_path, genre_to_set, False, log_entries_list)
+
+        log_entries_list.append(f"Tag setting process completed for {file_name}.")
+
+    elif api_data.get("status") == "ok" and not api_data.get("results"):
+        log_entries_list.append(f"No results found on AcoustID for {file_name}.")
+    else:
+        error_message = api_data.get("error", {}).get("message", "Unknown error")
+        log_entries_list.append(f"AcoustID API returned status '{api_data.get('status')}' for {file_name}. Error: {error_message}")
+
+    return "SUCCESS"

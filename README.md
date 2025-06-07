@@ -20,6 +20,8 @@ You can use `tag_album.py` to update the album and artist tags of all MP3 files 
 | `--show`         | Displays the current metadata of the MP3 files                   |
 | `--html`         | Outputs the metadata in HTML format                              |
 | `--fetch-metadata` | Fetches metadata (album artist, track numbers, year, cover art) from MusicBrainz for MP3 files. Uses existing artist and album tags to search. |
+| `--fetch-and-set-acoustid-tags` | Fetches metadata from AcoustID (fingerprinting local files), and sets tags specified by `--fields`. Requires `fpcalc` to be installed. |
+| `--fields`                      | Comma-separated list of tags to fetch and set from AcoustID (e.g., "title,artist,album,genre"). Used with `--fetch-and-set-acoustid-tags`. |
 | `-R`, `--recursive` | Recursively process files in subdirectories. If not set, only files in the specified folder (non-recursive) are processed. |
 | `-h`, `--help`   | Shows the help message and exits.                                |
 
@@ -61,6 +63,10 @@ You can use `tag_album.py` to update the album and artist tags of all MP3 files 
   ```sh
   python tag_album.py -f /path/to/your/music --fetch-metadata -R
   ```
+- **Fetch and set tags (title, artist, album) from AcoustID for all MP3s in a folder:**
+  ```sh
+  python tag_album.py -f /path/to/your/music --fetch-and-set-acoustid-tags --fields "title,artist,album"
+  ```
 - **Show the help message:**
   ```sh
   python3 tag_album.py --help
@@ -89,6 +95,7 @@ To set up a virtual environment and install the required packages for `tag_album
     ```sh
     pip install -r requirements.txt
     ```
+    Note: The `--fetch-and-set-acoustid-tags` feature also requires the `fpcalc` command-line tool. You can typically install it as part of `libchromaprint-tools` (e.g., `sudo apt-get install libchromaprint-tools` on Debian/Ubuntu, or `brew install chromaprint` on macOS).
 
 Make sure you have a `requirements.txt` file in the same directory as `tag_album.py` with all the necessary dependencies listed.
 

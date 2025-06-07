@@ -357,3 +357,179 @@ class TestRecursiveBehavior(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+import tempfile # For TestAcoustidFetching
+
+# Need to import the function to be tested
+from tag_album_utils.fetch_metadata import fetch_metadata_from_acoustid
+
+class TestAcoustidFetching(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        # Use the existing test-music.mp3. Ensure it's copied from the correct relative path.
+        original_mp3_src_path = os.path.join(os.path.dirname(__file__), 'test-music.mp3')
+        self.test_mp3_path = os.path.join(self.temp_dir, "test_acoustid.mp3")
+
+        if os.path.exists(original_mp3_src_path):
+            shutil.copy(original_mp3_src_path, self.test_mp3_path)
+            # Ensure the copied file has some basic ID3 structure for EasyID3 to work reliably
+            # or for the setters to create one.
+            try:
+                # Try to clear tags that might interfere, especially if test-music.mp3 has prior tags
+                audio = EasyID3(self.test_mp3_path)
+                for key in list(audio.keys()): # list() to avoid RuntimeError for changing dict size
+                    del audio[key]
+                audio.save()
+            except ID3NoHeaderError: # If no header, it's fine, setters will handle it
+                # Attempt to create one so EasyID3 can open it later for assertions
+                try:
+                    id3 = ID3()
+                    id3.save(self.test_mp3_path)
+                except Exception as e_save:
+                    print(f"Warning: Could not create initial ID3 header for {self.test_mp3_path} in setUp: {e_save}")
+            except Exception as e:
+                print(f"Warning: Could not clear tags for {self.test_mp3_path} in setUp: {e}")
+        else:
+            # Fallback if test-music.mp3 is missing (shouldn't happen in CI if repo is complete)
+            with open(self.test_mp3_path, 'wb') as f:
+                f.write(b'\xFF\xFB\x10\xC0' + b'\x00' * 10240) # Dummy MP3 data
+            try:
+                ID3().save(self.test_mp3_path) # Create a basic ID3 header
+            except Exception as e:
+                 print(f"Warning: Could not create fallback ID3 header for {self.test_mp3_path} in setUp: {e}")
+
+
+        self.api_key = "MDCUvH3Ppp" # As used in main script
+        self.sample_fpcalc_output_str = '{"duration": 180, "fingerprint": "some_fingerprint_string"}'
+        self.sample_fpcalc_output_json = {"duration": 180, "fingerprint": "some_fingerprint_string"}
+
+        self.sample_acoustid_response_json = {
+            "status": "ok",
+            "results": [{
+                "score": 0.9,
+                "id": "some_acoustid_id",
+                "recordings": [{
+                    "title": "Test Title from AcoustID",
+                    "duration": 180,
+                    "artists": [{"name": "Test Artist from AcoustID"}],
+                    "genres": [{"name": "Electronic"}]
+                }],
+                "releasegroups": [{
+                    "title": "Test Album from AcoustID",
+                    "type": "Album"
+                }]
+            }]
+        }
+        # Ensure logs directory exists for any direct calls to setters that might log independently
+        # although fetch_metadata_from_acoustid should manage its own log list.
+        os.makedirs("logs", exist_ok=True)
+
+
+    def tearDown(self):
+        if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    @patch('tag_album_utils.fetch_metadata.requests.get')
+    @patch('tag_album_utils.fetch_metadata.subprocess.run')
+    def test_fetch_and_set_acoustid_tags_success(self, mock_subprocess_run, mock_requests_get):
+
+        def subprocess_run_side_effect(*args, **kwargs):
+            cmd = args[0]
+            if cmd == ['fpcalc', '-version']:
+                return MagicMock(returncode=0, stdout="fpcalc version 1.5.1", stderr="")
+            elif cmd == ['fpcalc', '-json', self.test_mp3_path]:
+                return MagicMock(returncode=0, stdout=self.sample_fpcalc_output_str, stderr="")
+            return MagicMock(returncode=1, stdout="", stderr="Unknown command for mock_subprocess_run")
+
+        mock_subprocess_run.side_effect = subprocess_run_side_effect
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = self.sample_acoustid_response_json
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock() # Ensure it doesn't raise for 200
+        mock_requests_get.return_value = mock_response
+
+        log_entries = []
+        status = fetch_metadata_from_acoustid(self.test_mp3_path, self.api_key,
+                                              ["title", "artist", "album", "genre"], log_entries)
+
+        self.assertEqual(status, "SUCCESS", f"Function returned {status} with logs: {log_entries}")
+
+        # Assert subprocess.run calls
+        call_fpcalc_version = call(['fpcalc', '-version'], capture_output=True, text=True, check=False, timeout=5)
+        call_fpcalc_json = call(['fpcalc', '-json', self.test_mp3_path], capture_output=True, text=True, check=False, timeout=15) # check=False due to recent change
+        mock_subprocess_run.assert_has_calls([call_fpcalc_version, call_fpcalc_json], any_order=True) # any_order might be true if other calls were made, but specific calls must exist
+
+        # Assert requests.get call
+        mock_requests_get.assert_called_once()
+        actual_call_args = mock_requests_get.call_args
+        self.assertEqual(actual_call_args[0][0], "https://api.acoustid.org/v2/lookup")
+
+        expected_params = {
+            "client": self.api_key,
+            "meta": "recordings,releasegroups,compress,recordingids", # Adjusted based on requested fields
+            "duration": str(self.sample_fpcalc_output_json["duration"]),
+            "fingerprint": self.sample_fpcalc_output_json["fingerprint"]
+        }
+        # Normalize meta param for comparison by splitting, sorting, and rejoining
+        actual_meta_set = set(actual_call_args[1]['params']['meta'].split(','))
+        expected_meta_set = set(expected_params['meta'].split(','))
+        self.assertEqual(actual_meta_set, expected_meta_set, "Meta parameters do not match")
+
+        self.assertEqual(actual_call_args[1]['params']['client'], expected_params['client'])
+        self.assertEqual(actual_call_args[1]['params']['duration'], expected_params['duration'])
+        self.assertEqual(actual_call_args[1]['params']['fingerprint'], expected_params['fingerprint'])
+
+        # Assert tags were written
+        try:
+            audio = EasyID3(self.test_mp3_path)
+            self.assertEqual(audio.get('title'), ["Test Title from AcoustID"])
+            self.assertEqual(audio.get('artist'), ["Test Artist from AcoustID"])
+            self.assertEqual(audio.get('album'), ["Test Album from AcoustID"])
+            self.assertEqual(audio.get('genre'), ["Electronic"])
+        except Exception as e:
+            self.fail(f"Failed to read tags from MP3 after AcoustID processing: {e}\nLogs: {log_entries}")
+
+
+    @patch('tag_album_utils.fetch_metadata.requests.get')
+    @patch('tag_album_utils.fetch_metadata.subprocess.run')
+    def test_fetch_metadata_fpcalc_not_found(self, mock_subprocess_run, mock_requests_get):
+        # Simulate fpcalc -version failing (e.g., FileNotFoundError or non-zero return)
+        mock_subprocess_run.return_value = MagicMock(returncode=1, stderr="fpcalc not found")
+        # Or, to simulate FileNotFoundError directly for the first call:
+        # mock_subprocess_run.side_effect = FileNotFoundError("fpcalc not found at path")
+
+        log_entries = []
+        status = fetch_metadata_from_acoustid(self.test_mp3_path, self.api_key,
+                                              ["title", "artist"], log_entries)
+
+        self.assertEqual(status, "FPCLAC_NOT_FOUND")
+        mock_requests_get.assert_not_called()
+        # Check that a critical log message was added
+        self.assertTrue(any("CRITICAL: fpcalc not found" in entry for entry in log_entries),
+                        f"Critical fpcalc error not found in logs: {log_entries}")
+
+    @patch('tag_album_utils.fetch_metadata.requests.get')
+    @patch('tag_album_utils.fetch_metadata.subprocess.run')
+    def test_fetch_metadata_fpcalc_json_error(self, mock_subprocess_run, mock_requests_get):
+        # First call for version check is successful
+        # Second call for JSON output fails
+        def subprocess_run_side_effect(*args, **kwargs):
+            cmd = args[0]
+            if cmd == ['fpcalc', '-version']:
+                return MagicMock(returncode=0, stdout="fpcalc version 1.5.1", stderr="")
+            elif cmd == ['fpcalc', '-json', self.test_mp3_path]:
+                return MagicMock(returncode=1, stdout="", stderr="Error during fpcalc JSON generation") # Simulate fpcalc error
+            return MagicMock(returncode=1, stdout="", stderr="Unknown command")
+
+        mock_subprocess_run.side_effect = subprocess_run_side_effect
+
+        log_entries = []
+        status = fetch_metadata_from_acoustid(self.test_mp3_path, self.api_key,
+                                              ["title", "artist"], log_entries)
+
+        self.assertEqual(status, "FPCLAC_ERROR")
+        mock_requests_get.assert_not_called()
+        self.assertTrue(any("fpcalc execution failed" in entry for entry in log_entries),
+                        f"FPCLAC_ERROR not logged correctly: {log_entries}")
