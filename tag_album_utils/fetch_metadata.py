@@ -87,10 +87,10 @@ def fetch_metadata_from_musicbrainz(file_path, log_entries_list, fields_to_fetch
 
         # Update Album (TALB) if requested
         if should_process_field('album'):
-            new_album_name = release_data.get('title')
-            if new_album_name:
-                audio['album'] = new_album_name
-                log_entries_list.append(f"Prepared Album for update: {new_album_name}")
+            release_title_from_mb = release_data.get('title')
+            if release_title_from_mb: # Checks for None and non-empty string implicitly by truthiness
+                audio['album'] = release_title_from_mb
+                log_entries_list.append(f"Set Album to: {release_title_from_mb} from MusicBrainz for {file_path}.")
             else:
                 log_entries_list.append(f"Album title not found in MusicBrainz response for {file_path} when 'album' field requested.")
 
