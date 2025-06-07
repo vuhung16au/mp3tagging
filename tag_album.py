@@ -85,7 +85,7 @@ Usage examples:
     parser.add_argument('--show', action='store_true', help='Display current ID3 tags of .mp3 files in a table format in the terminal.')
     parser.add_argument('--html', action='store_true', help='Generate an HTML file ("mp3_tags.html") displaying current ID3 tags.')
     parser.add_argument('--fetch-metadata', action='store_true', help='Fetch metadata from MusicBrainz for .mp3 files in the folder.')
-    parser.add_argument('--fetch-and-set-from-mb', type=str, help='Comma-separated list of fields to fetch and set from MusicBrainz (e.g., "artist,genre,album").')
+    parser.add_argument('--fetch-and-set-from-mb', type=str, help='Comma-separated list of fields to fetch and set from MusicBrainz. Quote the list if it contains spaces (e.g., --fetch-and-set-from-mb "artist, album, genre"). Supported fields: artist, album, genre, year, coverart, tracknumber, albumartist.')
     parser.add_argument('-R', '--recursive', action='store_true', help='Recursively process .mp3 files in subdirectories. If not set, only files in the specified folder are processed.')
 
     if len(sys.argv) == 1:
