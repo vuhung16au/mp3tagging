@@ -71,188 +71,192 @@ def fetch_metadata_from_musicbrainz(file_path, log_entries_list, fields_to_fetch
 
         release_details = musicbrainzngs.get_release_by_id(release_id, includes=list(set(mb_includes)))
 
-        # Update Artist (TPE1) if requested - Note: MB search is by artist, so this is more like confirming/standardizing
+        release_data = release_details.get('release', {}) # Safely get the main 'release' dictionary
+
+        # Update Artist (TPE1) if requested
         if should_process_field('artist'):
-            if release_details['release']['artist-credit']:
-                new_artist_name = release_details['release']['artist-credit-string'] # This is often Album Artist
-                # For track artist, one might need to iterate through recordings if different
-                # For simplicity, using release artist as the primary artist tag TPE1
-                audio['artist'] = new_artist_name # Using EasyID3 object
-                log_entries_list.append(f"Set Artist to: {new_artist_name}")
+            # The 'artist-credit-string' is often the Album Artist.
+            # For track-specific artist, one would typically iterate through recordings.
+            # Here, we're setting the main 'artist' tag from the release's artist-credit-string.
+            new_artist_name = release_data.get('artist-credit-string')
+            if new_artist_name:
+                audio['artist'] = new_artist_name
+                log_entries_list.append(f"Prepared Artist for update: {new_artist_name}")
+            else:
+                log_entries_list.append(f"Artist ('artist-credit-string') not found in MusicBrainz response for {file_path} when 'artist' field requested.")
 
-
-        # Update Album (TALB) if requested - Similar to artist, search is by album.
+        # Update Album (TALB) if requested
         if should_process_field('album'):
-            new_album_name = release_details['release']['title']
-            audio['album'] = new_album_name # Using EasyID3 object
-            log_entries_list.append(f"Set Album to: {new_album_name}")
+            new_album_name = release_data.get('title')
+            if new_album_name:
+                audio['album'] = new_album_name
+                log_entries_list.append(f"Prepared Album for update: {new_album_name}")
+            else:
+                log_entries_list.append(f"Album title not found in MusicBrainz response for {file_path} when 'album' field requested.")
 
-        # Save changes made by EasyID3 for artist/album before proceeding with ID3 object
-        # This save is for any changes made to the 'audio' (EasyID3) object, like artist/album
         made_easyid3_changes = False
-        if should_process_field('artist') and release_details['release']['artist-credit']:
-            # This check was already there, added made_easyid3_changes flag
+        if should_process_field('artist') and release_data.get('artist-credit-string'):
             made_easyid3_changes = True
-        if should_process_field('album'):
-            # This check was already there, added made_easyid3_changes flag
+        if should_process_field('album') and release_data.get('title'):
             made_easyid3_changes = True
 
-        # Variables to store data for ID3 frames after EasyID3 save
         mb_track_title_for_update = None
         track_number_str_for_id3 = ""
         total_tracks_str_for_id3 = ""
 
-        # Process track-specific info like title and track number
-        if release_details['release']['medium-list'] and release_details['release']['medium-list'][0]['track-list']:
-            current_title_audio_local = EasyID3(file_path) # Fresh read for local title
-            current_track_title_local = current_title_audio_local.get('title', [None])[0]
-            total_tracks_str_for_id3 = str(release_details['release']['medium-list'][0]['track-count'])
+        medium_list = release_data.get('medium-list', [])
+        if medium_list and isinstance(medium_list, list) and len(medium_list) > 0:
+            # Consider the first medium for track processing
+            medium_info = medium_list[0]
+            total_tracks_count = medium_info.get('track-count')
+            if total_tracks_count is not None:
+                total_tracks_str_for_id3 = str(total_tracks_count)
 
-            if current_track_title_local:
-                for track_info in release_details['release']['medium-list'][0]['track-list']:
-                    if 'recording' in track_info and track_info['recording']['title'].lower() == current_track_title_local.lower():
-                        track_number_str_for_id3 = str(track_info['number'])
-                        if 'title' in track_info['recording']:
-                            mb_track_title_for_update = track_info['recording']['title']
-                        break
+            track_list = medium_info.get('track-list', [])
+            if track_list:
+                current_title_audio_local = EasyID3(file_path)
+                current_track_title_local = current_title_audio_local.get('title', [None])[0]
+
+                if current_track_title_local:
+                    for track_info in track_list:
+                        # Title for matching (as it appears on the release track list)
+                        release_track_title = track_info.get('title')
+                        recording_data = track_info.get('recording', {})
+                        # Canonical title from the recording
+                        canonical_recording_title = recording_data.get('title')
+
+                        if release_track_title and release_track_title.lower() == current_track_title_local.lower():
+                            track_number_str_for_id3 = track_info.get('number', "")
+                            # Prefer the canonical recording title for updating, if available
+                            mb_track_title_for_update = canonical_recording_title if canonical_recording_title else release_track_title
+                            break
 
             if should_process_field('title'):
-                if mb_track_title_for_update:
-                    audio['title'] = mb_track_title_for_update # Set on the main EasyID3 'audio' object
+                if mb_track_title_for_update: # This means a track was matched
+                    audio['title'] = mb_track_title_for_update
                     log_entries_list.append(f"Prepared Title for update: {mb_track_title_for_update}")
-                    made_easyid3_changes = True # Mark that EasyID3 save is needed
+                    made_easyid3_changes = True
                 else:
                     log_entries_list.append(f"Title requested, but track not matched or title not found in MB data for {file_path}.")
+        else:
+            if should_process_field('tracknumber') or should_process_field('title'):
+                 log_entries_list.append(f"Medium/track list not found in MusicBrainz response for {file_path}.")
+
 
         if made_easyid3_changes:
             try:
-                audio.save() # Saves artist, album, and potentially title
+                audio.save()
                 log_entries_list.append(f"Saved EasyID3 changes (artist/album/title) for {file_path}.")
             except Exception as e:
                 log_entries_list.append(f"Error saving EasyID3 changes for {file_path}: {e}")
 
-        # Load full ID3 object for manipulation AFTER EasyID3 saves
         audio_id3 = ID3(file_path)
 
-        # Set Album Artist (TPE2) using ID3 object
-        if should_process_field('albumartist') and release_details['release']['artist-credit']:
-            album_artist_name = release_details['release']['artist-credit-string']
-            audio_id3.delall('TPE2')
-            audio_id3.add(TPE2(encoding=3, text=album_artist_name))
-            log_entries_list.append(f"Set Album Artist to: {album_artist_name}")
-            # EasyID3 save for albumartist is tricky due to potential overwrite if audio_id3.save() is last.
-            # For now, primarily rely on ID3 TPE2 frame.
-            # Consider if EasyID3 'albumartist' needs to be set on the main 'audio' object earlier if desired.
-            log_entries_list.append(f"Set Album Artist to: {album_artist_name} using TPE2")
-        elif should_process_field('albumartist'):
-            log_entries_list.append(f"Album artist requested but not found in MusicBrainz data for {file_path}.")
+        if should_process_field('albumartist'):
+            album_artist_name = release_data.get('artist-credit-string')
+            if album_artist_name:
+                audio_id3.delall('TPE2')
+                audio_id3.add(TPE2(encoding=3, text=album_artist_name))
+                log_entries_list.append(f"Set Album Artist to: {album_artist_name} using TPE2")
+            else:
+                log_entries_list.append(f"Album artist ('artist-credit-string') not found in MusicBrainz response for {file_path} when 'albumartist' field requested.")
 
-        # Set Track Number (TRCK) using ID3 object (data prepared before EasyID3 save)
         if should_process_field('tracknumber'):
             if track_number_str_for_id3 and total_tracks_str_for_id3:
                 track_tag_text = f"{track_number_str_for_id3}/{total_tracks_str_for_id3}"
                 audio_id3.delall('TRCK')
                 audio_id3.add(TRCK(encoding=3, text=track_tag_text))
                 log_entries_list.append(f"Set Track Number/Total to: {track_tag_text}")
-            elif total_tracks_str_for_id3 : # Case where track not matched by title, but total tracks known
-                track_tag_text = f"1/{total_tracks_str_for_id3}" # Default to 1/X
+            elif total_tracks_str_for_id3 :
+                track_tag_text = f"1/{total_tracks_str_for_id3}"
                 audio_id3.delall('TRCK')
                 audio_id3.add(TRCK(encoding=3, text=track_tag_text))
                 log_entries_list.append(f"Set Track Number/Total to: {track_tag_text} (track title not matched, defaulted to 1)")
             else:
-                log_entries_list.append(f"Track number requested but not enough data found in MusicBrainz for {file_path}.")
+                log_entries_list.append(f"Track number data not found in MusicBrainz for {file_path} when 'tracknumber' field requested.")
 
-        # Note: Title (TIT2) is now handled by the main EasyID3 'audio' object and saved before this ID3 section.
-        # If direct TIT2 frame manipulation is ever needed, it would go here.
+        if should_process_field('year'):
+            release_date_str = release_data.get('date')
+            year = None
+            if release_date_str and isinstance(release_date_str, str) and '-' in release_date_str:
+                year = release_date_str.split('-')[0]
 
-        # Set Year (TYER) using ID3 object
-        if should_process_field('year') and release_details['release'].get('date'):
-            year = release_details['release']['date'].split('-')[0]
-            audio_id3.delall('TYER')
-            audio_id3.delall('TDRC') # TDRC is more common for full date, TYER for year only
-            audio_id3.add(TYER(encoding=3, text=year))
-            log_entries_list.append(f"Set Year to: {year} using TYER")
-            try:
-                easy_audio_date = EasyID3(file_path)
-                easy_audio_date['date'] = year
-                easy_audio_date.save()
-            except Exception as e:
-                log_entries_list.append(f"Note: Could not also set 'date' via EasyID3 for {file_path}: {e}")
-        elif should_process_field('year'):
-            log_entries_list.append(f"Year requested but not found in MusicBrainz data for {file_path}.")
+            if year:
+                audio_id3.delall('TYER')
+                audio_id3.delall('TDRC')
+                audio_id3.add(TYER(encoding=3, text=year))
+                log_entries_list.append(f"Set Year to: {year} using TYER")
+                try:
+                    easy_audio_date = EasyID3(file_path)
+                    easy_audio_date['date'] = year
+                    easy_audio_date.save()
+                except Exception as e:
+                    log_entries_list.append(f"Note: Could not also set 'date' via EasyID3 for {file_path}: {e}")
+            else:
+                log_entries_list.append(f"Year (from release 'date') not found or in unexpected format in MusicBrainz response for {file_path} when 'year' field requested.")
 
         if should_process_field('genre'):
-            genre_tags = []
-            # Genre from release group tags
-            if 'tag-list' in release_details['release']['release-group']:
-                genre_tags.extend([tag['name'] for tag in release_details['release']['release-group']['tag-list']])
-            # Genre from release group genres (requires 'genres' include)
-            if 'genre-list' in release_details['release']['release-group']:
-                 genre_tags.extend([genre['name'] for genre in release_details['release']['release-group']['genre-list']])
+            genre_tags_list = []
+            release_group_data = release_data.get('release-group', {})
 
-            if genre_tags:
-                # Limit to a few genres and join them, as TCON is often a single string.
-                # MusicBrainz can have many tags; pick the most relevant or common ones if possible.
-                # For now, just take the first one found if multiple, or join a few.
-                genre_str = ", ".join(list(set(genre_tags))[:3]) # Take up to 3 unique genres
+            for tag in release_group_data.get('tag-list', []):
+                if tag.get('name'): genre_tags_list.append(tag['name'])
+            for genre_item in release_group_data.get('genre-list', []):
+                 if genre_item.get('name'): genre_tags_list.append(genre_item['name'])
+
+            if genre_tags_list:
+                genre_str = ", ".join(list(set(genre_tags_list))[:3])
                 audio_id3.delall('TCON')
                 audio_id3.add(TCON(encoding=3, text=genre_str))
                 log_entries_list.append(f"Set Genre to: {genre_str}")
-                try: # Also try to set via EasyID3
+                try:
                     easy_audio_genre = EasyID3(file_path)
                     easy_audio_genre['genre'] = genre_str
                     easy_audio_genre.save()
                 except Exception as e:
                     log_entries_list.append(f"Note: Could not set 'genre' via EasyID3 for {file_path}: {e}")
             else:
-                log_entries_list.append(f"Genre requested but no genre tags found in MusicBrainz data for {file_path}.")
-
+                log_entries_list.append(f"Genre data not found in MusicBrainz response for {file_path} when 'genre' field requested.")
 
         if should_process_field('coverart'):
-            try:
-                # Ensure release_group id is available
-                if 'release-group' not in release_details['release'] or 'id' not in release_details['release']['release-group']:
-                    log_entries_list.append(f"Cannot fetch cover art: Missing release-group ID in MB data for {file_path}.")
-                else:
-                    rgid = release_details['release']['release-group']['id']
+            release_group_data = release_data.get('release-group', {})
+            rgid = release_group_data.get('id')
+            if not rgid:
+                log_entries_list.append(f"Cannot fetch cover art: Missing release-group ID in MB data for {file_path}.")
+            else:
+                try:
                     art_info = musicbrainzngs.get_release_group_image_list(rgid)
-                    if art_info and art_info['images']:
+                    images = art_info.get('images', [])
+                    if images:
                         front_cover_url = None
-                        for img in art_info['images']:
-                            if 'Front' in img['types'] and img.get('approved'):
-                                front_cover_url = img['thumbnails'].get('large') or img['image'] # Prefer large thumbnail, fallback to original image URL
+                        for img in images:
+                            img_types = img.get('types', [])
+                            if 'Front' in img_types and img.get('approved'):
+                                front_cover_url = img.get('thumbnails', {}).get('large') or img.get('image')
                                 break
-                        if not front_cover_url and art_info['images'][0].get('approved'): # Fallback to first approved image if no front
-                            front_cover_url = art_info['images'][0]['thumbnails'].get('large') or art_info['images'][0]['image']
+                        if not front_cover_url and images[0].get('approved'):
+                            front_cover_url = images[0].get('thumbnails', {}).get('large') or images[0].get('image')
 
                         if front_cover_url:
                             log_entries_list.append(f"Fetching cover art from: {front_cover_url}")
                             response = requests.get(front_cover_url, timeout=10)
                             response.raise_for_status()
-
                             mime_type = 'image/jpeg'
-                            if '.png' in front_cover_url.lower(): # Check lowercased URL
+                            if '.png' in front_cover_url.lower():
                                 mime_type = 'image/png'
-
                             audio_id3.delall('APIC')
-                            audio_id3.add(APIC(
-                                encoding=3,
-                                mime=mime_type,
-                                type=3, # 3 is for front cover
-                                desc='Cover',
-                                data=response.content
-                            ))
+                            audio_id3.add(APIC(encoding=3, mime=mime_type, type=3, desc='Cover', data=response.content))
                             log_entries_list.append(f"Successfully embedded cover art from {front_cover_url}")
                         else:
                             log_entries_list.append(f"No approved front cover art found on MusicBrainz for release group {rgid}.")
                     else:
-                        log_entries_list.append(f"No cover art found on MusicBrainz for release group {rgid}.")
-            except requests.exceptions.RequestException as e:
-                log_entries_list.append(f"Error fetching cover art: {e}")
-            except musicbrainzngs.WebServiceError as e:
-                log_entries_list.append(f"MusicBrainz error fetching cover art: {e}")
-            except Exception as e:
-                log_entries_list.append(f"An unexpected error occurred during cover art processing: {e}")
+                        log_entries_list.append(f"No cover art images found on MusicBrainz for release group {rgid}.")
+                except requests.exceptions.RequestException as e:
+                    log_entries_list.append(f"Error fetching cover art: {e}")
+                except musicbrainzngs.WebServiceError as e:
+                    log_entries_list.append(f"MusicBrainz error fetching cover art: {e}")
+                except Exception as e:
+                    log_entries_list.append(f"An unexpected error occurred during cover art processing: {e}")
         else:
             log_entries_list.append("Skipping cover art fetch as 'coverart' not in fields_to_fetch or fields_to_fetch is empty but other fields were specified.")
 

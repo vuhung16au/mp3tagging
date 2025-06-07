@@ -159,17 +159,39 @@ class TestTagAlbum(unittest.TestCase):
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.set_useragent')
-    def test_fetch_metadata_success(self, mock_set_useragent, mock_search_releases, mock_get_release_by_id, mock_get_release_group_image_list, mock_requests_get):
-        try: audio = EasyID3(self.test_mp3_path)
-        except ID3NoHeaderError: ID3().save(self.test_mp3_path); audio = EasyID3(self.test_mp3_path)
-        initial_artist, initial_album, initial_title = "Initial Artist", "Initial Album", "Initial Title"
-        audio['artist'], audio['album'], audio['title'] = initial_artist, initial_album, initial_title; audio.save()
-        mock_search_releases.return_value = {'release-list': [{'id': 'release-id-123', 'title': 'Fetched Album Title', 'ext:score': '100', 'artist-credit-string': 'Fetched Artist', 'release-group': {'id': 'rg-id-123'}}]}
-        mock_get_release_by_id.return_value = {'release': {'id': 'release-id-123', 'title': 'Fetched Album Title', 'artist-credit-string': 'Fetched Album Artist', 'artist-credit': [{'artist':{'name':'Fetched Album Artist'}}], 'date': '2023-10-26', 'medium-list': [{'track-count': 2, 'track-list': [{'number': '1', 'recording': {'title': 'Another Title'}}, {'number': '2', 'recording': {'title': initial_title}}]}], 'release-group': {'id': 'rg-id-123'}}}
-        mock_get_release_group_image_list.return_value = {'images': [{'types': ['Front'], 'approved': True, 'thumbnails': {'large': 'http://example.com/cover.jpg'}}]}
+    def test_fetch_metadata_success(self, mock_set_useragent, mock_search_releases, mock_get_release_by_id_mock, mock_get_release_group_image_list_mock, mock_requests_get_mock): # Renamed mocks
+        initial_artist, initial_album, initial_title_local = "Initial Artist", "Initial Album", "Initial Title"
+        # Simplified MP3 creation for TestTagAlbum class
+        try:
+            audio = EasyID3(self.test_mp3_path)
+        except ID3NoHeaderError:
+            ID3().save(self.test_mp3_path) # Ensure file exists for ID3 loading
+            audio = EasyID3(self.test_mp3_path)
+        audio['artist'] = initial_artist
+        audio['album'] = initial_album
+        audio['title'] = initial_title_local
+        audio.save()
+
+        mock_search_releases.return_value = {'release-list': [{'id': 'release-id-123', 'title': 'Fetched Album Title', 'ext:score': '100', 'artist-credit-string': 'Fetched Artist', 'release-group': {'id': 'rg-id-123'}}]} # Simplified search result for this test
+
+        # Simplified mock_release_details_data for this test as it's in TestTagAlbum
+        mock_release_details_data = {
+            'release': {
+                'id': 'release-id-123', 'title': "Fetched Album Title", 'artist-credit-string': "Fetched Album Artist",
+                'artist-credit': [{'artist':{'name':"Fetched Album Artist"}}], 'date': '2023-10-26',
+                'medium-list': [{'track-count': '2', 'track-list': [
+                    {'id': 'track-id-other', 'number': '1', 'title': 'Another Title', 'recording': {'id': 'rec-id-other', 'title': 'Another Title'}}, # Adjusted mock
+                    {'id': 'track-id-matched', 'number': '2', 'title': initial_title_local, 'recording': {'id': 'rec-id-matched', 'title': initial_title_local}} # Adjusted mock
+                ]}],
+                'release-group': {'id': 'rg-id-123'}
+            }
+        }
+        mock_get_release_by_id_mock.return_value = mock_release_details_data
+
+        mock_get_release_group_image_list_mock.return_value = {'images': [{'types': ['Front'], 'approved': True, 'thumbnails': {'large': 'http://example.com/cover.jpg'}, 'image': 'http://example.com/cover.jpg'}]}
         mock_cover_response = MagicMock(); mock_cover_response.content = b'dummy jpeg data'; mock_cover_response.raise_for_status = MagicMock()
-        mock_requests_get.return_value = mock_cover_response
-        log_entries = []; fetch_metadata_from_musicbrainz(self.test_mp3_path, log_entries)
+        mock_requests_get_mock.return_value = mock_cover_response # Use renamed mock for requests.get
+        log_entries = []; fetch_metadata_from_musicbrainz(self.test_mp3_path, log_entries, fields_to_fetch=None) # fetch all
         audio_tags = ID3(self.test_mp3_path)
         self.assertEqual(audio_tags['TPE2'].text[0], 'Fetched Album Artist')
         self.assertEqual(audio_tags['TRCK'].text[0], '2/2')
@@ -197,19 +219,47 @@ class TestTagAlbum(unittest.TestCase):
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.set_useragent')
-    def test_fetch_metadata_release_found_no_cover_art(self, mock_set_useragent, mock_search_releases, mock_get_release_by_id, mock_get_release_group_image_list, mock_requests_get):
-        try: audio = EasyID3(self.test_mp3_path)
-        except ID3NoHeaderError: ID3().save(self.test_mp3_path); audio = EasyID3(self.test_mp3_path)
-        initial_artist, initial_album, initial_title = "ArtistNoCover", "AlbumNoCover", "TitleNoCover"
-        audio['artist'], audio['album'], audio['title'] = initial_artist, initial_album, initial_title; audio.save()
-        mock_search_releases.return_value = {'release-list': [{'id': 'release-id-nocover', 'title': 'Album Title No Cover', 'ext:score': '95', 'release-group': {'id': 'rg-id-nocover'}}]}
-        mock_get_release_by_id.return_value = {'release': {'id': 'release-id-nocover', 'title': 'Album Title No Cover', 'artist-credit-string': 'Artist Name NoCover', 'artist-credit': [{'artist':{'name':'Artist Name NoCover'}}], 'date': '2022', 'medium-list': [{'track-count': 1, 'track-list': [{'number': '1', 'recording': {'title': initial_title}}]}], 'release-group': {'id': 'rg-id-nocover'}}}
-        mock_get_release_group_image_list.return_value = {'images': []}
-        log_entries = []; fetch_metadata_from_musicbrainz(self.test_mp3_path, log_entries)
-        mock_requests_get.assert_not_called()
+    def test_fetch_metadata_release_found_no_cover_art(self, mock_set_useragent, mock_search_releases_mock, mock_get_release_by_id_mock, mock_get_release_group_image_list_mock, mock_requests_get_mock): # Renamed mocks
+        initial_artist, initial_album, initial_title_local = "ArtistNoCover", "AlbumNoCover", "TitleNoCover"
+        try:
+            audio = EasyID3(self.test_mp3_path)
+        except ID3NoHeaderError:
+            ID3().save(self.test_mp3_path)
+            audio = EasyID3(self.test_mp3_path)
+        audio['artist'], audio['album'], audio['title'] = initial_artist, initial_album, initial_title_local; audio.save()
+
+        rgid_for_test = 'rg-id-nocover'
+        # Manually define mock search result for TestTagAlbum
+        mock_search_result_data = {
+            'release-list': [{
+                'id': 'release-id-nocover', 'title': 'Album Title No Cover', 'ext:score': '95',
+                'artist-credit-string': initial_artist,
+                'artist-credit': [{'artist': {'name': initial_artist}}],
+                'release-group': {'id': rgid_for_test, 'type': 'Album'}
+            }]
+        }
+        mock_search_releases_mock.return_value = mock_search_result_data # Use renamed mock
+
+        mock_release_data_no_cover = {
+            'release': {
+                'id': 'release-id-nocover', 'title': 'Album Title No Cover', 'artist-credit-string': 'Artist Name NoCover',
+                'artist-credit': [{'artist':{'name':'Artist Name NoCover'}}], 'date': '2022',
+                'medium-list': [{'track-count': '1', 'track-list': [{'number': '1', 'title': initial_title_local,
+                                                                    'recording': {'title': initial_title_local}}]}],
+                'release-group': {'id': rgid_for_test}
+            }
+        }
+        mock_get_release_by_id_mock.return_value = mock_release_data_no_cover
+
+        mock_get_release_group_image_list_mock.return_value = {'images': []}
+
+        log_entries = [];
+        fetch_metadata_from_musicbrainz(self.test_mp3_path, log_entries, fields_to_fetch=['coverart'])
+
+        mock_requests_get_mock.assert_not_called() # Corrected mock name
         audio_tags = ID3(self.test_mp3_path)
         self.assertNotIn('APIC:Cover', audio_tags)
-        self.assertIn("No cover art found on MusicBrainz", "\n".join(log_entries))
+        self.assertTrue(any(f"No cover art images found on MusicBrainz for release group {rgid_for_test}" in entry for entry in log_entries), "Log for no images found not present.")
 
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.set_useragent')
@@ -444,7 +494,9 @@ class TestFetchAndSetFromMB(unittest.TestCase):
         }
 
     def get_mock_release_details(self, release_id="release-id-mock", artist="Test Artist", album="Test Album", album_artist="Test Album Artist",
-                                 year="2023", date_str="2023-01-01", track_title="Test Track", track_num="1", total_tracks="10",
+                                 year="2023", date_str="2023-01-01",
+                                 track_release_title="Test Track", canonical_recording_title="Test Recording Title", # Differentiate release track title and canonical recording title
+                                 track_num="1", total_tracks="10",
                                  genre_list=None, tag_list=None, rg_id="rg-id-mock"):
         if genre_list is None: genre_list = ["Rock"]
         if tag_list is None: tag_list = ["Progressive Rock"]
@@ -458,13 +510,19 @@ class TestFetchAndSetFromMB(unittest.TestCase):
                 'id': release_id,
                 'title': album,
                 'artist-credit-string': album_artist,
-                'artist-credit': [{'artist': {'name': album_artist}}], # Typically album artist
+                'artist-credit': [{'artist': {'name': album_artist}}],
                 'date': date_str,
                 'medium-list': [{
                     'track-count': total_tracks,
                     'track-list': [{
+                        'id': 'track-id-mock', # Add a track id
                         'number': track_num,
-                        'recording': {'title': track_title, 'artist-credit': [{'artist': {'name': artist}}]} # Track artist
+                        'title': track_release_title, # Title as it appears on this specific release's tracklist
+                        'recording': {
+                            'id': 'recording-id-mock',
+                            'title': canonical_recording_title, # Canonical title of the recording
+                            'artist-credit': [{'artist': {'name': artist}}] # Track artist for the recording
+                        }
                     }]
                 }],
                 'release-group': {
@@ -547,8 +605,13 @@ class TestFetchAndSetFromMB(unittest.TestCase):
         mock_artist_to_set = "New AlbumArtist" # This will be set to audio['artist']
         mock_search.return_value = self.get_mock_search_results(artist="Original Search Artist", album="New Album")
         mock_get_id.return_value = self.get_mock_release_details(
-            artist="Track Artist", album="New Album", album_artist=mock_artist_to_set,
-            year="2024", track_title="New Title", genre_list=["New Genre"]
+            artist="Track Artist",
+            album="New Album",
+            album_artist=mock_artist_to_set,
+            year="2024",
+            track_release_title="New Title", # Updated
+            # canonical_recording_title defaults to track_release_title
+            genre_list=["New Genre"]
         )
         # No cover art call expected
 
@@ -578,10 +641,16 @@ class TestFetchAndSetFromMB(unittest.TestCase):
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
     def test_selective_genre_only(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
-        mock_search.return_value = self.get_mock_search_results(artist="Old Artist", album="Old Album") # Match initial file
+        mock_search.return_value = self.get_mock_search_results(artist="Old Artist", album="Old Album")
         mock_get_id.return_value = self.get_mock_release_details(
-            artist="Old Artist", album="Old Album", album_artist="Unchanged AlbumArtist",
-            year="1990", track_title="Old Title", genre_list=["Funk", "Soul"], tag_list=[] # New Genre
+            artist="Old Artist",
+            album="Old Album",
+            album_artist="Unchanged AlbumArtist",
+            year="1990",
+            track_release_title="Old Title",
+            canonical_recording_title="Old Title",
+            genre_list=["Funk", "Soul"],
+            tag_list=[]
         )
 
         log_entries = []
@@ -605,9 +674,17 @@ class TestFetchAndSetFromMB(unittest.TestCase):
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
     def test_selective_year_only(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
+        # This test had an incorrect genre assertion due to a previous misapplied patch.
+        # It should only check for the year.
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': 'Old Artist', 'album': 'Old Album', 'genre': 'Old Genre', 'date': '1990'})
         mock_search.return_value = self.get_mock_search_results(artist="Old Artist", album="Old Album")
         mock_get_id.return_value = self.get_mock_release_details(
-            artist="Old Artist", album="Old Album", date_str="2025-12-11", year="2025" # New Year
+            artist="Old Artist",
+            album="Old Album",
+            album_artist="Unchanged AlbumArtist", # Added to match signature
+            date_str="2025-12-11", # This will be used for year
+            track_release_title="Some Track", # Added to match signature
+            track_num = "1", total_tracks="1" # Added to match signature
         )
 
         log_entries = []
@@ -616,6 +693,7 @@ class TestFetchAndSetFromMB(unittest.TestCase):
 
         audio = EasyID3(self.mp3_path)
         self.assertEqual(audio.get('date'), ['2025'])
+
         # Check other tags remain unchanged
         self.assertEqual(audio.get('artist'), ['Old Artist'])
         self.assertEqual(audio.get('album'), ['Old Album'])
@@ -660,10 +738,18 @@ class TestFetchAndSetFromMB(unittest.TestCase):
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
     @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
     def test_selective_tracknumber_albumartist(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
+        initial_mp3_tags = {'artist': "Old Artist", 'album': "Old Album", 'title': "Track Title to Match", 'genre': "Old Genre", 'date': "1990"} # Changed title for clarity
+        self.create_dummy_mp3(self.mp3_path, initial_tags=initial_mp3_tags)
+
         mock_search.return_value = self.get_mock_search_results(artist="Old Artist", album="Old Album")
         mock_get_id.return_value = self.get_mock_release_details(
-            artist="Old Artist", album="Old Album", album_artist="New AlbumArtist",
-            track_title="Old Title", track_num="5", total_tracks="15" # New track/total, New AlbumArtist
+            artist="Old Artist",
+            album="Old Album",
+            album_artist="New AlbumArtist",
+            track_release_title="Track Title to Match", # This must match mp3's 'title'
+            canonical_recording_title="Canonical Track Title",
+            track_num="5",
+            total_tracks="15"
         )
 
         log_entries = []
@@ -810,28 +896,29 @@ class TestFetchAndSetFromMB(unittest.TestCase):
         # This test verifies that 'title' is correctly processed by the utility function
         # when it's part of fields_to_fetch, as would be the case with --auto.
 
-        initial_artist = "Old Artist" # Must match what's in self.mp3_path for search
+        initial_artist = "Old Artist"
         initial_album = "Old Album"
-        # To test title setting, we'll ensure the local title matches the title in MB's tracklist,
-        # and that title from MB is what we expect to be set.
-        mb_track_title = "Matched Title from MB" # This will be used for both local and MB mock
+        local_track_title = "Old Title" # Local MP3 has this title
+        mb_track_title = "New Title From MusicBrainz" # We want MB to return this as the canonical title
 
-        # Re-create the dummy MP3 with specific initial tags for this test
-        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': mb_track_title, 'genre': 'Old Genre', 'date': '1990'})
+        # MP3 has 'Old Title'
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': local_track_title, 'genre': 'Old Genre', 'date': '1990'})
 
         mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album)
 
-        mock_details = self.get_mock_release_details(
+        # Mock MB release: tracklist has 'Old Title' for matching, its recording's title is 'New Title From MusicBrainz'
+        mock_details_response = self.get_mock_release_details(
             artist=initial_artist,
             album=initial_album,
             album_artist="Some AlbumArtist",
-            track_title=mb_track_title, # This title will be in the mock MB track list
+            track_release_title=local_track_title, # For matching track_info['title']
+            canonical_recording_title=mb_track_title,   # For track_info['recording']['title']
             genre_list=["New Genre"],
             tag_list=[],
             year="2024"
         )
-        mock_get_id.return_value = mock_details
-        # Ensure the tag-list is truly empty in the final mock response.
+        mock_get_id.return_value = mock_details_response
+        # Ensure the tag-list is truly empty in the final mock response (redundant if tag_list=[] was passed to helper, but safe).
         mock_get_id.return_value['release']['release-group']['tag-list'] = []
 
 
@@ -853,6 +940,249 @@ class TestFetchAndSetFromMB(unittest.TestCase):
         self.assertEqual(audio.get('artist'), ["Some AlbumArtist"])
         self.assertEqual(audio.get('date'), ['1990'])
         mock_get_img_list.assert_not_called()
+
+    # --- Tests for missing optional data ---
+
+    @patch('tag_album_utils.fetch_metadata.requests.get') # For cover art if any other field is also fetched
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_group_image_list')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
+    def test_missing_albumartist_data(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
+        initial_artist = "Old Artist"
+        initial_album = "Old Album"
+        initial_album_artist = "InitialAlbumArtist" # This tag exists locally
+
+        self.create_dummy_mp3(self.mp3_path, initial_tags={
+            'artist': initial_artist,
+            'album': initial_album,
+            'albumartist': initial_album_artist,
+            'title': 'Some Title',
+            'genre': 'Old Genre',
+            'date': '1990'
+        })
+
+        mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album)
+
+        # Simulate response missing 'artist-credit-string'
+        mock_details = self.get_mock_release_details(
+            artist=initial_artist,
+            album="New Album From MB",
+            album_artist=None,
+            track_release_title="Some Title" # Updated
+        )
+        # Ensure artist-credit-string is absent for the test's purpose
+        if 'artist-credit-string' in mock_details['release']:
+            del mock_details['release']['artist-credit-string']
+        # Also ensure artist-credit list is empty
+        mock_details['release']['artist-credit'] = []
+
+
+        mock_get_id.return_value = mock_details
+
+        log_entries = []
+        fields_to_request = ['albumartist', 'album'] # Request albumartist (missing) and album (present)
+        from tag_album_utils.fetch_metadata import fetch_metadata_from_musicbrainz
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries, fields_to_fetch=fields_to_request)
+
+        audio = EasyID3(self.mp3_path)
+        # Album artist should remain unchanged because data was missing
+        self.assertEqual(audio.get('albumartist'), [initial_album_artist])
+        # Album should be updated
+        self.assertEqual(audio.get('album'), ["New Album From MB"])
+
+        self.assertTrue(any(f"Album artist ('artist-credit-string') not found in MusicBrainz response for {self.mp3_path}" in entry for entry in log_entries),
+                        "Log message for missing album artist data not found.")
+
+    @patch('tag_album_utils.fetch_metadata.requests.get')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_group_image_list')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
+    def test_missing_or_malformed_year_data(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
+        initial_artist = "Old Artist"
+        initial_album = "Old Album"
+        initial_year = "1990"
+
+        self.create_dummy_mp3(self.mp3_path, initial_tags={
+            'artist': initial_artist,
+            'album': initial_album,
+            'date': initial_year,
+            'title': 'Some Title'
+        })
+
+        mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album)
+
+        # Scenario 1: Date is completely missing
+        mock_details_no_date = self.get_mock_release_details(album="New Album NoDate", date_str=None, track_release_title="Some Title") # Updated
+        mock_get_id.return_value = mock_details_no_date
+
+        log_entries_no_date = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_no_date, fields_to_fetch=['year', 'album'])
+
+        audio_no_date = EasyID3(self.mp3_path)
+        self.assertEqual(audio_no_date.get('date'), [initial_year]) # Year should be unchanged
+        self.assertEqual(audio_no_date.get('album'), ["New Album NoDate"]) # Album should update
+        self.assertTrue(any(f"Year (from release 'date') not found or in unexpected format in MusicBrainz response for {self.mp3_path}" in entry for entry in log_entries_no_date),
+                        "Log for missing date not found.")
+
+        # Scenario 2: Date is malformed
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'date': initial_year, 'title': 'Some Title'}) # Reset
+        mock_details_malformed_date = self.get_mock_release_details(album="New Album MalformedDate", date_str="INVALID_DATE_FORMAT", track_release_title="Some Title") # Updated
+        mock_get_id.return_value = mock_details_malformed_date
+
+        log_entries_malformed_date = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_malformed_date, fields_to_fetch=['year', 'album'])
+
+        audio_malformed_date = EasyID3(self.mp3_path)
+        self.assertEqual(audio_malformed_date.get('date'), [initial_year]) # Year should be unchanged
+        self.assertEqual(audio_malformed_date.get('album'), ["New Album MalformedDate"]) # Album should update
+        self.assertTrue(any(f"Year (from release 'date') not found or in unexpected format in MusicBrainz response for {self.mp3_path}" in entry for entry in log_entries_malformed_date),
+                        "Log for malformed date not found.")
+
+    @patch('tag_album_utils.fetch_metadata.requests.get')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_group_image_list')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
+    def test_missing_coverart_data(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
+        initial_artist = "Old Artist"
+        initial_album = "Old Album"
+        rgid_to_use = "rg-id-missing-cover"
+
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': 'Some Title'})
+        # Ensure no APIC frame initially
+        audio_id3_check = ID3(self.mp3_path)
+        self.assertEqual(audio_id3_check.getall('APIC'), [])
+
+        mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album, rg_id=rgid_to_use)
+        mock_details = self.get_mock_release_details(album="New Album CoverTest", rg_id=rgid_to_use, track_release_title="Some Title")
+        mock_get_id.return_value = mock_details
+
+        # Scenario A: art_info['images'] is missing/empty
+        mock_get_img_list.return_value = {'images': []} # No images in list
+
+        log_entries_no_images = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_no_images, fields_to_fetch=['coverart', 'album'])
+
+        audio_no_images = ID3(self.mp3_path)
+        self.assertEqual(audio_no_images.getall('APIC'), []) # Cover art should not be set
+        audio_easy_no_images = EasyID3(self.mp3_path)
+        self.assertEqual(audio_easy_no_images.get('album'), ["New Album CoverTest"]) # Album should update
+        self.assertTrue(any(f"No cover art images found on MusicBrainz for release group {rgid_to_use}" in entry for entry in log_entries_no_images),
+                        "Log for no images found not present.")
+        mock_requests_get.assert_not_called() # Should not attempt to download if no URL
+
+        # Scenario B: Images present, but none suitable (e.g., not 'Front', not 'approved', or no URL)
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': 'Some Title'}) # Reset
+        mock_get_img_list.return_value = {'images': [
+            {'types': ['Back'], 'approved': False, 'thumbnails': {'large': 'http://example.com/back.jpg'}, 'image': 'http://example.com/back.jpg'}, # Not approved
+            {'types': ['Front'], 'approved': False, 'thumbnails': {'large': 'http://example.com/front_notapproved.jpg'}, 'image': 'http://example.com/front_notapproved.jpg'}, # Not approved
+            {'types': ['Front'], 'approved': True, 'thumbnails': {}, 'image': None} # Approved front, but no usable URL
+        ]}
+
+        log_entries_unsuitable_images = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_unsuitable_images, fields_to_fetch=['coverart'])
+
+        audio_unsuitable_images = ID3(self.mp3_path)
+        self.assertEqual(audio_unsuitable_images.getall('APIC'), []) # Cover art should not be set
+        self.assertTrue(any(f"No approved front cover art found on MusicBrainz for release group {rgid_to_use}" in entry for entry in log_entries_unsuitable_images),
+                        f"Log for no suitable front cover not present. Logs: {log_entries_unsuitable_images}")
+        mock_requests_get.assert_not_called() # Should not attempt to download
+
+        # Scenario C: Release group ID missing (cannot even query for images)
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': 'Some Title'}) # Reset
+        mock_details_no_rgid = self.get_mock_release_details(album="Album No RGID", rg_id=None, track_release_title="Some Title")
+        if mock_details_no_rgid['release'].get('release-group'):
+             mock_details_no_rgid['release']['release-group']['id'] = None
+        mock_get_id.return_value = mock_details_no_rgid
+        mock_get_img_list.reset_mock() # Reset call count from previous scenarios
+
+        log_entries_no_rgid = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_no_rgid, fields_to_fetch=['coverart', 'album'])
+        audio_no_rgid = ID3(self.mp3_path)
+        self.assertEqual(audio_no_rgid.getall('APIC'), [])
+        self.assertTrue(any(f"Cannot fetch cover art: Missing release-group ID in MB data for {self.mp3_path}" in entry for entry in log_entries_no_rgid))
+        mock_get_img_list.assert_not_called() # Should not be called if rgid is missing
+
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
+    def test_missing_track_title_data(self, mock_search, mock_get_id):
+        initial_artist = "Old Artist"
+        initial_album = "Old Album"
+        local_title = "Local Title"
+
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': local_title})
+        mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album)
+
+        mock_details = self.get_mock_release_details(
+            album="New Album TitleTest",
+            track_release_title=local_title, # Match by this
+            canonical_recording_title=None   # Simulate MB having no canonical title for it
+        )
+        # To truly test "title not found from MB", ensure the source for mb_track_title_for_update is None
+        # If canonical is None, it falls back to release_track_title. So make that None too for the mock.
+        mock_details['release']['medium-list'][0]['track-list'][0]['title'] = None
+        mock_details['release']['medium-list'][0]['track-list'][0]['recording']['title'] = None
+        mock_get_id.return_value = mock_details
+
+        log_entries = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries, fields_to_fetch=['title', 'album'])
+
+        audio = EasyID3(self.mp3_path)
+        self.assertEqual(audio.get('title'), [local_title])
+        self.assertEqual(audio.get('album'), ["New Album TitleTest"])
+        self.assertTrue(any(f"Title requested, but track not matched or title not found in MB data for {self.mp3_path}" in entry for entry in log_entries))
+
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
+    def test_missing_tracknumber_data(self, mock_search, mock_get_id):
+        initial_artist = "Old Artist"
+        initial_album = "Old Album"
+        initial_tracknumber = "1/1" # Dummy initial, though not strictly needed for test
+
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': 'Some Song', 'tracknumber': initial_tracknumber})
+        mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album)
+
+        # Scenario 1: medium-list is missing
+        mock_details_no_medium_list = self.get_mock_release_details(album="New Album NoMedium", track_release_title="Some Song")
+        mock_details_no_medium_list['release']['medium-list'] = []
+        mock_get_id.return_value = mock_details_no_medium_list
+
+        log_entries_no_medium = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_no_medium, fields_to_fetch=['tracknumber', 'album'])
+
+        audio_no_medium = EasyID3(self.mp3_path)
+        # Tracknumber might be absent or remain as initial_tracknumber depending on how EasyID3 handles missing after trying to set.
+        # For this test, we check it's not set to something new and a log is present.
+        # If it was '1/1', it might stay. If it was empty, it should stay empty.
+        # The safest is to check it's not set to a specific new value if we knew one.
+        # More importantly, check the log.
+        self.assertEqual(audio_no_medium.get('album'), ["New Album NoMedium"])
+        self.assertTrue(any(f"Medium/track list not found in MusicBrainz response for {self.mp3_path}" in entry for entry in log_entries_no_medium))
+
+        # Scenario 2: track-list is missing 'number'
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': 'Some Song', 'tracknumber': initial_tracknumber})
+        mock_details_no_track_num = self.get_mock_release_details(
+            album="New Album NoTrackNum",
+            track_release_title="Some Song",
+            track_num=None
+        )
+        # Ensure 'number' is truly absent if helper has complex defaults
+        if 'number' in mock_details_no_track_num['release']['medium-list'][0]['track-list'][0]:
+             del mock_details_no_track_num['release']['medium-list'][0]['track-list'][0]['number']
+
+        mock_get_id.return_value = mock_details_no_track_num
+
+        log_entries_no_track_num = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_no_track_num, fields_to_fetch=['tracknumber', 'album'])
+        audio_no_track_num = EasyID3(self.mp3_path)
+        self.assertEqual(audio_no_track_num.get('album'), ["New Album NoTrackNum"])
+        # Track number should default to "1/X" if total_tracks is available but specific number isn't.
+        # If total_tracks is also missing (e.g. del mock_details_no_track_num['release']['medium-list'][0]['track-count']), then the specific log is hit.
+        # Let's test that more specific log:
+        del mock_details_no_track_num['release']['medium-list'][0]['track-count'] # Ensure total_tracks also missing
+        mock_get_id.return_value = mock_details_no_track_num
+        log_entries_no_total_tracks = []
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries_no_total_tracks, fields_to_fetch=['tracknumber'])
+        self.assertTrue(any(f"Track number data not found in MusicBrainz for {self.mp3_path}" in entry for entry in log_entries_no_total_tracks))
 
 
 if __name__ == '__main__':
