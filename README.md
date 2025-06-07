@@ -19,6 +19,7 @@ You can use `tag_album.py` to update the album and artist tags of all MP3 files 
 | `-y`, `--year`  | Sets the year (e.g., 2023) for the MP3 files |
 | `--show`         | Displays the current metadata of the MP3 files                   |
 | `--html`         | Outputs the metadata in HTML format                              |
+| `--fetch-metadata` | Fetches metadata (album artist, track numbers, year, cover art) from MusicBrainz for MP3 files. Uses existing artist and album tags to search. |
 | `-R`, `--recursive` | Recursively process files in subdirectories. If not set, only files in the specified folder (non-recursive) are processed. |
 | `-h`, `--help`   | Shows the help message and exits.                                |
 
@@ -51,6 +52,14 @@ You can use `tag_album.py` to update the album and artist tags of all MP3 files 
 - **Recursively update album for all MP3s in a folder and its subfolders:**
   ```sh
   python tag_album.py -f /path/to/folder -a "New Album for All" -R
+  ```
+- **Fetch metadata from MusicBrainz for all MP3s in a folder (requires existing artist and album tags):**
+  ```sh
+  python tag_album.py -f /path/to/your/music --fetch-metadata
+  ```
+- **Fetch metadata recursively:**
+  ```sh
+  python tag_album.py -f /path/to/your/music --fetch-metadata -R
   ```
 - **Show the help message:**
   ```sh

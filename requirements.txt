@@ -1,3 +1,4 @@
 mutagen
 prettytable
 yattag
+musicbrainzngs
