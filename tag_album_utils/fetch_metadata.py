@@ -3,6 +3,7 @@ import requests
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, ID3NoHeaderError, APIC, TPE2, TRCK, TYER, TCON # Added TYER, TCON for Genre
 # Removed EasyID3NotLoadedError as it's not standard
+from mutagen.id3 import TIT2 # Import TIT2 for Title frame
 
 
 def fetch_metadata_from_musicbrainz(file_path, log_entries_list, fields_to_fetch=None):
@@ -62,7 +63,8 @@ def fetch_metadata_from_musicbrainz(file_path, log_entries_list, fields_to_fetch
 
         # Determine necessary includes for get_release_by_id
         mb_includes = ["artist-credits", "release-groups"] # Basic includes
-        if should_process_field('tracknumber') or should_process_field('year') or should_process_field('genre'): # year can be in release group or media
+        # Added 'title' to the condition for needing "media" and "recordings"
+        if should_process_field('tracknumber') or should_process_field('year') or should_process_field('genre') or should_process_field('title'):
             mb_includes.extend(["media", "recordings"])
         if should_process_field('genre'):
             mb_includes.extend(["genres", "tags"]) # For genre information from release group
@@ -95,56 +97,75 @@ def fetch_metadata_from_musicbrainz(file_path, log_entries_list, fields_to_fetch
             # This check was already there, added made_easyid3_changes flag
             made_easyid3_changes = True
 
+        # Variables to store data for ID3 frames after EasyID3 save
+        mb_track_title_for_update = None
+        track_number_str_for_id3 = ""
+        total_tracks_str_for_id3 = ""
+
+        # Process track-specific info like title and track number
+        if release_details['release']['medium-list'] and release_details['release']['medium-list'][0]['track-list']:
+            current_title_audio_local = EasyID3(file_path) # Fresh read for local title
+            current_track_title_local = current_title_audio_local.get('title', [None])[0]
+            total_tracks_str_for_id3 = str(release_details['release']['medium-list'][0]['track-count'])
+
+            if current_track_title_local:
+                for track_info in release_details['release']['medium-list'][0]['track-list']:
+                    if 'recording' in track_info and track_info['recording']['title'].lower() == current_track_title_local.lower():
+                        track_number_str_for_id3 = str(track_info['number'])
+                        if 'title' in track_info['recording']:
+                            mb_track_title_for_update = track_info['recording']['title']
+                        break
+
+            if should_process_field('title'):
+                if mb_track_title_for_update:
+                    audio['title'] = mb_track_title_for_update # Set on the main EasyID3 'audio' object
+                    log_entries_list.append(f"Prepared Title for update: {mb_track_title_for_update}")
+                    made_easyid3_changes = True # Mark that EasyID3 save is needed
+                else:
+                    log_entries_list.append(f"Title requested, but track not matched or title not found in MB data for {file_path}.")
+
         if made_easyid3_changes:
             try:
-                audio.save()
-                log_entries_list.append(f"Saved artist/album changes via EasyID3 for {file_path}.")
-            # Removed EasyID3NotLoadedError specific catch block
+                audio.save() # Saves artist, album, and potentially title
+                log_entries_list.append(f"Saved EasyID3 changes (artist/album/title) for {file_path}.")
             except Exception as e:
-                log_entries_list.append(f"Error saving artist/album changes via EasyID3 for {file_path}: {e}")
+                log_entries_list.append(f"Error saving EasyID3 changes for {file_path}: {e}")
 
-        # Load full ID3 object for manipulation AFTER EasyID3 saves (if any)
+        # Load full ID3 object for manipulation AFTER EasyID3 saves
         audio_id3 = ID3(file_path)
 
+        # Set Album Artist (TPE2) using ID3 object
         if should_process_field('albumartist') and release_details['release']['artist-credit']:
             album_artist_name = release_details['release']['artist-credit-string']
             audio_id3.delall('TPE2')
             audio_id3.add(TPE2(encoding=3, text=album_artist_name))
             log_entries_list.append(f"Set Album Artist to: {album_artist_name}")
-            # EasyID3 often handles 'albumartist' well
-            try:
-                easy_audio_aa = EasyID3(file_path)
-                easy_audio_aa['albumartist'] = album_artist_name
-                easy_audio_aa.save()
-            except Exception as e:
-                log_entries_list.append(f"Note: Could not set 'albumartist' also via EasyID3 for {file_path}: {e}")
+            # EasyID3 save for albumartist is tricky due to potential overwrite if audio_id3.save() is last.
+            # For now, primarily rely on ID3 TPE2 frame.
+            # Consider if EasyID3 'albumartist' needs to be set on the main 'audio' object earlier if desired.
+            log_entries_list.append(f"Set Album Artist to: {album_artist_name} using TPE2")
         elif should_process_field('albumartist'):
             log_entries_list.append(f"Album artist requested but not found in MusicBrainz data for {file_path}.")
 
+        # Set Track Number (TRCK) using ID3 object (data prepared before EasyID3 save)
+        if should_process_field('tracknumber'):
+            if track_number_str_for_id3 and total_tracks_str_for_id3:
+                track_tag_text = f"{track_number_str_for_id3}/{total_tracks_str_for_id3}"
+                audio_id3.delall('TRCK')
+                audio_id3.add(TRCK(encoding=3, text=track_tag_text))
+                log_entries_list.append(f"Set Track Number/Total to: {track_tag_text}")
+            elif total_tracks_str_for_id3 : # Case where track not matched by title, but total tracks known
+                track_tag_text = f"1/{total_tracks_str_for_id3}" # Default to 1/X
+                audio_id3.delall('TRCK')
+                audio_id3.add(TRCK(encoding=3, text=track_tag_text))
+                log_entries_list.append(f"Set Track Number/Total to: {track_tag_text} (track title not matched, defaulted to 1)")
+            else:
+                log_entries_list.append(f"Track number requested but not enough data found in MusicBrainz for {file_path}.")
 
-        if should_process_field('tracknumber') and release_details['release']['medium-list'] and release_details['release']['medium-list'][0]['track-list']:
-            total_tracks = str(release_details['release']['medium-list'][0]['track-count'])
-            # Re-fetch current title using EasyID3 for this specific task
-            try:
-                current_title_audio = EasyID3(file_path)
-                current_track_title = current_title_audio.get('title', [None])[0]
-            except Exception:
-                current_track_title = None # Fallback if reading title fails
+        # Note: Title (TIT2) is now handled by the main EasyID3 'audio' object and saved before this ID3 section.
+        # If direct TIT2 frame manipulation is ever needed, it would go here.
 
-            track_number_str = ""
-            if current_track_title:
-                for track_info in release_details['release']['medium-list'][0]['track-list']:
-                    if 'recording' in track_info and track_info['recording']['title'].lower() == current_track_title.lower():
-                        track_number_str = str(track_info['number'])
-                        break
-
-            track_tag_text = f"{track_number_str}/{total_tracks}" if track_number_str else f"1/{total_tracks}" # Default to 1 if no match
-            audio_id3.delall('TRCK')
-            audio_id3.add(TRCK(encoding=3, text=track_tag_text))
-            log_entries_list.append(f"Set Track Number/Total to: {track_tag_text}")
-        elif should_process_field('tracknumber'):
-            log_entries_list.append(f"Track number requested but not found in MusicBrainz data for {file_path}.")
-
+        # Set Year (TYER) using ID3 object
         if should_process_field('year') and release_details['release'].get('date'):
             year = release_details['release']['date'].split('-')[0]
             audio_id3.delall('TYER')

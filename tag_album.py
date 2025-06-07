@@ -86,6 +86,7 @@ Usage examples:
     parser.add_argument('--html', action='store_true', help='Generate an HTML file ("mp3_tags.html") displaying current ID3 tags.')
     parser.add_argument('--fetch-metadata', action='store_true', help='Fetch metadata from MusicBrainz for .mp3 files in the folder.')
     parser.add_argument('--fetch-and-set-from-mb', type=str, help='Comma-separated list of fields to fetch and set from MusicBrainz. Quote the list if it contains spaces (e.g., --fetch-and-set-from-mb "artist, album, genre"). Supported fields: artist, album, genre, year, coverart, tracknumber, albumartist.')
+    parser.add_argument('--auto', action='store_true', help='Automatically fetch and set a default list of fields (artist, genre, album, title) from MusicBrainz. Overridden by --fetch-and-set-from-mb if also provided.')
     parser.add_argument('-R', '--recursive', action='store_true', help='Recursively process .mp3 files in subdirectories. If not set, only files in the specified folder are processed.')
 
     if len(sys.argv) == 1:
@@ -104,7 +105,8 @@ Usage examples:
         args.cover_art is not None,
         args.year is not None,
         args.fetch_metadata,
-        args.fetch_and_set_from_mb is not None
+        args.fetch_and_set_from_mb is not None,
+        args.auto # Added --auto to action check
     ])
 
     if not action_or_tag_specified:
@@ -136,9 +138,12 @@ Usage examples:
         set_year_tag(folder, args.year, args.recursive)
 
     if args.fetch_and_set_from_mb:
-        fields_to_fetch = [field.strip() for field in args.fetch_and_set_from_mb.split(',')]
-        fetch_and_set_metadata_from_mb(folder, fields_to_fetch, args.recursive)
-    elif args.fetch_metadata: # Ensure this is mutually exclusive or handled correctly if both can be true
+        fields_to_process = [field.strip() for field in args.fetch_and_set_from_mb.split(',')]
+        fetch_and_set_metadata_from_mb(folder, fields_to_process, args.recursive)
+    elif args.auto: # --auto is used, and --fetch-and-set-from-mb was NOT provided
+        default_auto_fields = ['artist', 'genre', 'album', 'title']
+        fetch_and_set_metadata_from_mb(folder, default_auto_fields, args.recursive)
+    elif args.fetch_metadata: # This is the old full fetch, only if the above two are not specified
         log_entries = []
         files_processed_count = 0
         if args.recursive:

@@ -96,6 +96,20 @@ To fetch and set only the album, artist, and genre for all MP3s in a folder (and
 python3 tag_album.py --folder /path/to/music --fetch-and-set-from-mb "album, artist, genre" -R
 ```
 
+### Automatic Field Fetching (`--auto`)
+
+The `--auto` option provides a convenient way to fetch a predefined set of common tags.
+
+-   **Purpose**: Acts as a shortcut for `--fetch-and-set-from-mb "artist, genre, album, title"`.
+-   **Behavior**: If `--auto` is used, the script will attempt to fetch and set `artist`, `genre`, `album`, and `title` for your MP3 files.
+-   **Precedence**: If you provide specific fields via `--fetch-and-set-from-mb`, those will be used instead, even if `--auto` is also present.
+
+**Usage Example:**
+To automatically fetch and set the default fields (artist, genre, album, title) for all MP3s in a folder and its subfolders:
+```sh
+python3 tag_album.py --folder /path/to/music --auto -R
+```
+
 ## Setting up the Environment
 
 To set up a virtual environment and install the required packages for `tag_album.py`, follow these steps:

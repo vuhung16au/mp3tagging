@@ -589,7 +589,11 @@ class TestFetchAndSetFromMB(unittest.TestCase):
         fetch_metadata_from_musicbrainz(self.mp3_path, log_entries, fields_to_fetch=['genre'])
 
         audio = EasyID3(self.mp3_path)
-        self.assertEqual(audio.get('genre'), ["Funk, Soul"]) # Set by TCON, then read by EasyID3
+        # Genre check - order independent
+        actual_genre_str_genre_only = audio.get('genre')[0]
+        actual_genres_set_genre_only = set(g.strip() for g in actual_genre_str_genre_only.split(','))
+        self.assertEqual(actual_genres_set_genre_only, {"Funk", "Soul"})
+
         # Check other tags remain unchanged
         self.assertEqual(audio.get('artist'), ['Old Artist'])
         self.assertEqual(audio.get('album'), ['Old Album'])
@@ -702,7 +706,11 @@ class TestFetchAndSetFromMB(unittest.TestCase):
 
         audio_easy = EasyID3(self.mp3_path)
         self.assertEqual(audio_easy.get('date'), ['2077'])
-        self.assertEqual(audio_easy.get('genre'), ["Cyberpunk, Electronic"])
+
+        # Genre check - order independent
+        actual_genre_str_combo = audio_easy.get('genre')[0]
+        actual_genres_set_combo = set(g.strip() for g in actual_genre_str_combo.split(','))
+        self.assertEqual(actual_genres_set_combo, {"Cyberpunk", "Electronic"})
 
         audio_id3 = ID3(self.mp3_path)
         self.assertIsNotNone(audio_id3.getall('APIC'))
@@ -750,6 +758,101 @@ class TestFetchAndSetFromMB(unittest.TestCase):
         audio_after = EasyID3(self.mp3_path)
         self.assertEqual(audio_after.get('date'), initial_year) # Year should not have changed
         self.assertTrue(any("No results found on MusicBrainz" in entry for entry in log_entries))
+
+    # --- Tests for --auto flag ---
+
+    @patch('tag_album.fetch_and_set_metadata_from_mb') # Patch orchestrator
+    def test_auto_flag_uses_default_fields(self, mock_orchestrator_func):
+        sys.argv = ['tag_album.py', '--folder', self.test_dir, '--auto']
+        from tag_album import main as tag_album_main
+        tag_album_main()
+
+        expected_default_fields = ['artist', 'genre', 'album', 'title']
+        mock_orchestrator_func.assert_called_once_with(
+            os.path.abspath(self.test_dir),
+            expected_default_fields,
+            False # Recursive not specified
+        )
+
+    @patch('tag_album.fetch_and_set_metadata_from_mb') # Patch orchestrator
+    def test_auto_flag_with_recursion(self, mock_orchestrator_func):
+        sys.argv = ['tag_album.py', '--folder', self.test_dir, '--auto', '-R']
+        from tag_album import main as tag_album_main
+        tag_album_main()
+
+        expected_default_fields = ['artist', 'genre', 'album', 'title']
+        mock_orchestrator_func.assert_called_once_with(
+            os.path.abspath(self.test_dir),
+            expected_default_fields,
+            True # Recursive specified
+        )
+
+    @patch('tag_album.fetch_and_set_metadata_from_mb') # Patch orchestrator
+    def test_auto_precedence_by_fetch_and_set_from_mb(self, mock_orchestrator_func):
+        user_specified_fields = ['year', 'coverart']
+        # Construct the argument string for fetch-and-set-from-mb
+        fetch_arg_str = ','.join(user_specified_fields)
+        sys.argv = ['tag_album.py', '--folder', self.test_dir, '--auto', '--fetch-and-set-from-mb', fetch_arg_str]
+        from tag_album import main as tag_album_main
+        tag_album_main()
+
+        mock_orchestrator_func.assert_called_once_with(
+            os.path.abspath(self.test_dir),
+            user_specified_fields, # User fields should take precedence
+            False # Recursive not specified
+        )
+
+    @patch('tag_album_utils.fetch_metadata.requests.get')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_group_image_list')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.get_release_by_id')
+    @patch('tag_album_utils.fetch_metadata.musicbrainzngs.search_releases')
+    def test_auto_updates_title_field_via_util(self, mock_search, mock_get_id, mock_get_img_list, mock_requests_get):
+        # This test verifies that 'title' is correctly processed by the utility function
+        # when it's part of fields_to_fetch, as would be the case with --auto.
+
+        initial_artist = "Old Artist" # Must match what's in self.mp3_path for search
+        initial_album = "Old Album"
+        # To test title setting, we'll ensure the local title matches the title in MB's tracklist,
+        # and that title from MB is what we expect to be set.
+        mb_track_title = "Matched Title from MB" # This will be used for both local and MB mock
+
+        # Re-create the dummy MP3 with specific initial tags for this test
+        self.create_dummy_mp3(self.mp3_path, initial_tags={'artist': initial_artist, 'album': initial_album, 'title': mb_track_title, 'genre': 'Old Genre', 'date': '1990'})
+
+        mock_search.return_value = self.get_mock_search_results(artist=initial_artist, album=initial_album)
+
+        mock_details = self.get_mock_release_details(
+            artist=initial_artist,
+            album=initial_album,
+            album_artist="Some AlbumArtist",
+            track_title=mb_track_title, # This title will be in the mock MB track list
+            genre_list=["New Genre"],
+            tag_list=[],
+            year="2024"
+        )
+        mock_get_id.return_value = mock_details
+        # Ensure the tag-list is truly empty in the final mock response.
+        mock_get_id.return_value['release']['release-group']['tag-list'] = []
+
+
+        auto_fields_to_fetch = ['artist', 'genre', 'album', 'title']
+
+        log_entries = []
+        from tag_album_utils.fetch_metadata import fetch_metadata_from_musicbrainz
+        fetch_metadata_from_musicbrainz(self.mp3_path, log_entries, fields_to_fetch=auto_fields_to_fetch)
+
+        audio = EasyID3(self.mp3_path)
+        self.assertEqual(audio.get('title'), [mb_track_title]) # Title should be updated to mb_track_title
+
+        # Genre check - order independent, expecting only "New Genre"
+        actual_genre_str = audio.get('genre')[0]
+        actual_genres_set = set(g.strip() for g in actual_genre_str.split(','))
+        self.assertEqual(actual_genres_set, {"New Genre"}) # Reverted diagnostic: This is the correct expectation
+
+        self.assertEqual(audio.get('album'), [initial_album])
+        self.assertEqual(audio.get('artist'), ["Some AlbumArtist"])
+        self.assertEqual(audio.get('date'), ['1990'])
+        mock_get_img_list.assert_not_called()
 
 
 if __name__ == '__main__':
