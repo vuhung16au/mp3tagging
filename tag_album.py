@@ -14,7 +14,7 @@ from yattag import Doc # Imported in display module
 import datetime # Imported in utils module
 import musicbrainzngs # Imported in fetch_metadata module
 import requests # Imported in fetch_metadata module
-
+from dotenv import load_dotenv
 from tag_album_utils.display import show_folder_tags_in_pretty_HTML, show_folder_tags
 from tag_album_utils.set_tags import set_artist_tag, set_album_tag, set_genre_tag, set_rating_tag, set_cover_art, set_year_tag
 from tag_album_utils.fetch_metadata import fetch_metadata_from_musicbrainz
@@ -60,6 +60,7 @@ Usage examples:
         sys.exit(1)
 
     args = parser.parse_args()
+    load_dotenv(dotenv_path=".env.local")
 
     action_or_tag_specified = any([
         args.show,
@@ -131,7 +132,9 @@ Usage examples:
     if args.fetch_and_set_acoustid_tags:
         log_entries = []
         files_processed_count = 0
-        acoustid_api_key = "YiHCtGqK2I"
+        acoustid_api_key = os.getenv("ACOUSTID_API_KEY")
+        if not acoustid_api_key:
+            sys.exit("Error: ACOUSTID_API_KEY not set. Create a .env.local file with the key or set the environment variable.")
         requested_fields_list = [field.strip() for field in args.fields.split(',')]
 
         if args.recursive:

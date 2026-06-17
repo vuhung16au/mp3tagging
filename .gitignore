@@ -1,5 +1,32 @@
-env
-.vscode
+# Python cache directories
+__pycache__/
+
+# Virtual environment
+.venv/
+env/
+# VS Code settings
+.vscode/
+# macOS Finder files
 .DS_Store
+# Environment files
 .env
-logs
+# Logs
+logs/
+# Pytest cache
+.pytest_cache/
+# Build artifacts
+build/
+dist/
+*.egg-info/
+# Coverage reports
+.coverage
+htmlcov/
+# MyPy cache
+.mypy_cache/
+# IDE directories
+.idea/
+# Other temporary files
+*.log
+*.tmp
+# Environment local file
+.env.local

@@ -86,8 +86,15 @@ def show_folder_tags_in_pretty_HTML(directory, recursive):
                     except Exception:
                         rating = 'Unknown'
                     with doc_tag('tr'):
+                        # Compute a display-friendly path prefixing with '/app' for container consistency
+                        display_path = file_path
+                        cwd = os.getcwd()
+                        if display_path.startswith(cwd):
+                            # Convert absolute path to a container-like path
+                            rel_path = os.path.relpath(display_path, cwd)
+                            display_path = os.path.join('/app', rel_path)
                         with doc_tag('td'):
-                            doc_text(file_path)
+                            doc_text(display_path)
                         with doc_tag('td'):
                             doc_text(artist)
                         with doc_tag('td'):

@@ -2,3 +2,6 @@ mutagen
 prettytable
 yattag
 musicbrainzngs
+pytest
+python-dotenv
+requests
